@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "thesis-floor-halkes"
+version = "0.1.0"
+description = ""
+authors = ["Jens van de Zande <jensvandezande@gmail.com>"]
+readme = "README.md"
+packages = [{include = "thesis_floor_halkes"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+torch = "^2.7.0"
+torch-geometric = "^2.6.1"
+pandas = "^2.2.3"
+matplotlib = "^3.10.1"
+networkx = "^3.4.2"
+osmnx = "^2.0.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
