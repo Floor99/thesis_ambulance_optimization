@@ -1,0 +1,4 @@
+runs
+thesis_floor_halkes/policy
+thesis_floor_halkes/__pycache__
+*.tfevents.*
