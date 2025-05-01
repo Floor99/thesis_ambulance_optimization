@@ -109,6 +109,7 @@ class ExponentialBaseline(Baseline):
     def load_state_dict(self, state_dict):
         self.v = state_dict['v']
 
+from torch_geometric.data import Batch
 
 class CriticBaseline(Baseline):
 
@@ -117,9 +118,15 @@ class CriticBaseline(Baseline):
 
         self.critic = critic
 
+    # def eval(self, x, c):
+    #     v = self.critic(x)
+    #     # Detach v since actor should not backprop through baseline, only for loss
+    #     return v.detach(), F.mse_loss(v, c.detach())
+
     def eval(self, x, c):
-        v = self.critic(x)
-        # Detach v since actor should not backprop through baseline, only for loss
+        # Batch the list of PyG Data objects and move to the same device as returns
+        batch = Batch.from_data_list(x).to(c.device)
+        v = self.critic(batch)                  # shape: [batch_size]
         return v.detach(), F.mse_loss(v, c.detach())
 
     def get_learnable_parameters(self):

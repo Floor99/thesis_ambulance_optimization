@@ -179,7 +179,7 @@ from graph_data import RandomGraphDataset
 from environment import AmbulanceEnvDynamic
 from model_dynamic_attention import PolicyNetworkGATDynamicAttention
 from agent import AmbulanceAgent
-from reinforce_baselines import ExponentialBaseline
+from reinforce_baselines import ExponentialBaseline, CriticBaseline
 from torch.utils.tensorboard import SummaryWriter
 import os
 
@@ -237,7 +237,7 @@ def train(
         edge_attr_dim=edge_attr_dim
     ).to(device)
 
-    baseline = ExponentialBaseline(beta=0.99)
+    baseline = ExponentialBaseline(beta=0.99).to(device)
     agent = AmbulanceAgent(policy, baseline=baseline, lr=lr, gamma=gamma)
 
     all_returns = []
@@ -372,8 +372,8 @@ if __name__ == '__main__':
         num_graphs=args.graphs,
         batch_size=args.batch,
         max_steps=args.steps,
-        goal_bonus=10.0,
-        dead_end_penalty=5.0,
+        goal_bonus=20.0,
+        dead_end_penalty=10.0,
         max_wait=30.0,
         save_path=args.save
     )

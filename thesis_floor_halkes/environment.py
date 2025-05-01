@@ -157,9 +157,12 @@ class AmbulanceEnvDynamic:
         data: Data,
         start_node: int,
         end_node: int,
-        goal_bonus: float = 0.0,
-        dead_end_penalty: float = 0.0,
-        max_wait: float = 30.0
+        goal_bonus: float = 20.0,
+        dead_end_penalty: float = 10.0,
+        max_wait: float = 30.0,
+        revisit_penalty: float = 1.0,
+        step_penalty: float = 0.1,
+        wait_weight: float = 1.0,
     ):
         # Store graph and parameters
         self.data = data
@@ -174,6 +177,9 @@ class AmbulanceEnvDynamic:
         self.goal_bonus = goal_bonus
         self.dead_end_penalty = dead_end_penalty
         self.max_wait = max_wait
+        self.revisit_penalty = revisit_penalty
+        self.step_penalty = step_penalty
+        self.wait_weight = wait_weight
 
         # Precompute static edge travel times
         lengths = data.edge_attr[:, 0]
@@ -225,12 +231,14 @@ class AmbulanceEnvDynamic:
             edge_attr=self.data.edge_attr
         )                                               # packs into a new Data object with node and edge information - Policy needs PyG Data object
         
-        obs_data.valid_actions = [
-            v for v, _ in self.adj[self.current_node]
-            if v not in self.visited
-        ]                                               # attach valid actions (neighbors not yet visited)
+        # obs_data.valid_actions = [
+        #     v for v, _ in self.adj[self.current_node]
+        #     if v not in self.visited
+        # ]                                               # attach valid actions (neighbors not yet visited)
+        # All neighbors are valid actions now (including revisits)
+        obs_data.valid_actions = [v for v, _ in self.adj[self.current_node]]
+        return obs_data, self.current_node
         
-        return obs_data, self.current_node  
 
     def step(self, action: int):
         """
@@ -241,7 +249,7 @@ class AmbulanceEnvDynamic:
             raise RuntimeError("Episode done; call reset() to restart.")
         # Validate
         neighbors = [v for v, _ in self.adj[self.current_node]]
-        if action not in neighbors or action in self.visited:
+        if action not in neighbors:
             raise ValueError(f"Invalid action {action} from node {self.current_node}.")
 
         # Compute the travel time
@@ -253,8 +261,13 @@ class AmbulanceEnvDynamic:
         else:
             wait_t = 0.0
 
-        reward = - (travel_t + wait_t)
-
+        reward = - (travel_t + self.wait_weight * wait_t) / 10.0
+        reward -= self.step_penalty         # Step penalty for each action taken
+        
+        # Add penalty for revisiting a node 
+        if action in self.visited:
+            reward -= self.revisit_penalty
+        
         # Move to next node and mark the last node as visited
         self.current_node = action
         self.visited.add(action)
@@ -270,7 +283,7 @@ class AmbulanceEnvDynamic:
             self.done = True
             reward += self.goal_bonus
         else:
-            no_moves = all(v in self.visited for v, _ in self.adj[self.current_node])
+            no_moves = all(v in self.visited for v, _ in self.adj[self.current_node])   # technically not used anymore - can revisit nodes
             if no_moves:
                 self.done = True
                 reward -= self.dead_end_penalty
@@ -281,4 +294,5 @@ class AmbulanceEnvDynamic:
         """
         Return neighbors of current_node not yet visited.
         """
-        return [v for v, _ in self.adj[self.current_node] if v not in self.visited]
+        # return [v for v, _ in self.adj[self.current_node] if v not in self.visited]
+        return [v for v, _ in self.adj[self.current_node]]
