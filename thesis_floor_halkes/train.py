@@ -176,7 +176,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from torch_geometric.loader import DataLoader
 from graph_data import RandomGraphDataset
-from environment import AmbulanceEnvDynamic
+from environment.dynamic_ambulance import AmbulanceEnvDynamic
 from model_dynamic_attention import PolicyNetworkGATDynamicAttention
 from agent import AmbulanceAgent
 from reinforce_baselines import ExponentialBaseline, CriticBaseline
@@ -213,8 +213,8 @@ def train(
     # Dataset and DataLoader
     dataset = RandomGraphDataset(
         num_graphs=num_graphs,
-        min_nodes=10,
-        max_nodes=35,
+        min_nodes=4,
+        max_nodes=6,
         min_prob=0.1,
         max_prob=0.5,
         max_wait=max_wait,
@@ -237,7 +237,7 @@ def train(
         edge_attr_dim=edge_attr_dim
     ).to(device)
 
-    baseline = ExponentialBaseline(beta=0.99).to(device)
+    baseline = ExponentialBaseline(beta=0.99)
     agent = AmbulanceAgent(policy, baseline=baseline, lr=lr, gamma=gamma)
 
     all_returns = []
@@ -345,10 +345,10 @@ def train(
 
 def parse_args():
     parser = argparse.ArgumentParser("Train dynamic GAT routing policy")
-    parser.add_argument('--epochs',    type=int,   default=1000)
-    parser.add_argument('--graphs',    type=int,   default=512)
-    parser.add_argument('--batch',     type=int,   default=16)
-    parser.add_argument('--steps',     type=int,   default=50)
+    parser.add_argument('--epochs',    type=int,   default=1)
+    parser.add_argument('--graphs',    type=int,   default=6)
+    parser.add_argument('--batch',     type=int,   default=3)
+    parser.add_argument('--steps',     type=int,   default=3)
     parser.add_argument('--save',      type=str,   default='thesis_floor_halkes/policy/best_policy.pth')
     parser.add_argument('--lr',        type=float, default=1e-3)
     parser.add_argument('--gamma',     type=float, default=0.99)
