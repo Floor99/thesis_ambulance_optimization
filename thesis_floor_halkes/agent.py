@@ -34,7 +34,7 @@ class AmbulanceAgent:
 
         # 2) evaluate baseline(s)
         # baselines, loss_b = self.baseline.eval(self.collected_states, returns)    # when adding critic baseline, use collected_states
-        baselines, loss_b = self.baseline.eval(None, returns)
+        baselines, loss_b = self.baseline.eval(None, returns)                       # loss_b Teaches baseline how to estimate returns
 
 
         # 3) compute advantages
@@ -45,11 +45,11 @@ class AmbulanceAgent:
         #     advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
 
         # 5) actor loss
-        logps = torch.stack(self.log_probs)
-        actor_loss = -(logps * advantages.detach()).mean()
+        log_probs_tensor = torch.stack(self.log_probs)
+        actor_loss = -(log_probs_tensor * advantages.detach()).mean()      # policy gradient loss, which updates policy network (actor) to make better decisions
 
         # 6) total loss = actor + baseline loss
-        loss = actor_loss + loss_b
+        loss = actor_loss + loss_b                              # loss_b only non-zero when you’re using a learnable baseline
 
         # 7) backprop
         self.optimizer.zero_grad()
