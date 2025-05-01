@@ -173,12 +173,15 @@ import torch
 import matplotlib
 matplotlib.use('Agg')  # headless backend
 import matplotlib.pyplot as plt
+import numpy as np
 from torch_geometric.loader import DataLoader
 from graph_data import RandomGraphDataset
 from environment import AmbulanceEnvDynamic
 from model_dynamic_attention import PolicyNetworkGATDynamicAttention
 from agent import AmbulanceAgent
 from reinforce_baselines import ExponentialBaseline
+from torch.utils.tensorboard import SummaryWriter
+import os
 
 def train(
     in_static: int,
@@ -205,12 +208,13 @@ def train(
     Saves best policy weights to `save_path` and plots training returns.
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    writer = SummaryWriter(log_dir=os.path.join('runs', 'reinforce_dynamic'))
 
     # Dataset and DataLoader
     dataset = RandomGraphDataset(
         num_graphs=num_graphs,
         min_nodes=10,
-        max_nodes=40,
+        max_nodes=35,
         min_prob=0.1,
         max_prob=0.5,
         max_wait=max_wait,
@@ -241,9 +245,11 @@ def train(
     baseline_losses = []
     best_return = float('-inf')
     best_route  = None
-
+    global_step = 0 
+    
     for epoch in range(1, num_epochs + 1):
         print(f"=== Epoch {epoch}/{num_epochs} ===")
+        epoch_returns = []
         for batch_idx, batch in enumerate(loader, start=1):
             for data in batch.to_data_list():
                 data = data.to(device)
@@ -290,16 +296,26 @@ def train(
                 actor_losses.append(float(actor_loss))
                 baseline_losses.append(float(loss_b))
                 all_returns.append(float(ep_return))
+                epoch_returns.append(float(ep_return))
 
+                writer.add_scalar('Return/episode', ep_return, global_step)
+                writer.add_scalar('Loss/actor', actor_loss, global_step)
+                writer.add_scalar('Loss/baseline', loss_b, global_step)
+                writer.add_scalar('Episode/success', float(curr == end), global_step)
+                global_step += 1
+                
                 # Track best
                 if curr == end and ep_return > best_return:
                     best_return = ep_return
                     best_route  = route.copy()
 
-            print(f"Batch {batch_idx}/{len(loader)} → best return {best_return:.2f} on route {best_route}")
+            # print(f"Batch {batch_idx}/{len(loader)} → best return {best_return:.2f} on route {best_route}")
+        print(f"Epoch {epoch} done, best return {best_return:.2f} on route {best_route}")
+        if epoch_returns:
+            writer.add_scalar('Return/epoch_avg', np.mean(epoch_returns), epoch)
 
     print(f"Training complete. Best return: {best_return:.2f}, route: {best_route}")
-
+    
     # Save policy weights
     torch.save(policy.state_dict(), save_path)
     print(f"Saved best policy weights to {save_path}")
@@ -324,6 +340,8 @@ def train(
     plt.legend()
     plt.savefig('thesis_floor_halkes/plots/dynamic_training_losses.png', dpi=300)
     print('Saved dynamic_training_losses.png')
+    
+    writer.close()
 
 def parse_args():
     parser = argparse.ArgumentParser("Train dynamic GAT routing policy")
