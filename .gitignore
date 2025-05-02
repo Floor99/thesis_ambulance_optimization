@@ -1,4 +1,9 @@
-runs
-thesis_floor_halkes/policy
-thesis_floor_halkes/__pycache__
+# Ignore TensorBoard logs
 *.tfevents.*
+
+# Ignore entire runs directory
+runs/
+
+# Ignore specific folders
+thesis_floor_halkes/policy/
+thesis_floor_halkes/__pycache__/
