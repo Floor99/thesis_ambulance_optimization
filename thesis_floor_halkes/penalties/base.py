@@ -14,7 +14,7 @@ class Penalty(ABC):
         self.name = name
 
     @abstractmethod
-    def __call__(self, environment:Environment, action:Action|None=None) -> float:
+    def __call__(self, environment:Environment, penalty:float, action:Action|None=None) -> float:
         """
         Call the penalty function.
 
@@ -26,4 +26,25 @@ class Penalty(ABC):
             The calculated penalty.
         """
         pass
-     
+
+class Bonus(ABC):
+    """
+    Abstract base class for bonuses.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+
+    @abstractmethod
+    def __call__(self, environment:Environment, bonus:float, action:Action|None=None) -> float:
+        """
+        Call the bonus function.
+
+        Args:
+            environment: The environment to calculate the bonus for.
+            action: The action taken in the environment.
+
+        Returns:
+            The calculated bonus.
+        """
+        pass     

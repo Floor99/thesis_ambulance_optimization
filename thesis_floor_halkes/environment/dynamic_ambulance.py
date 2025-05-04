@@ -1,9 +1,15 @@
+from typing import List
 import torch
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Dataset
 
+from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter
+from thesis_floor_halkes.penalties.calculator import PenaltyCalculator
+from thesis_floor_halkes.state import State
 from utils.adj_matrix import build_adjecency_matrix
+from utils.travel_time import calculate_edge_travel_time
+from thesis_floor_halkes.environment.base import Environment
 
-class AmbulanceEnvDynamic:
+class DynamicEnvironment(Environment):
     """
     Environment for ambulance routing with dynamic waiting times and light status.
 
@@ -18,138 +24,122 @@ class AmbulanceEnvDynamic:
     Reward: negative (travel_time + wait_time), plus bonuses/penalties.
     """
     def __init__(
-        self,
-        data: Data,
-        start_node: int,
-        end_node: int,
-        goal_bonus: float = 20.0,
-        dead_end_penalty: float = 10.0,
-        max_wait: float = 30.0,
-        revisit_penalty: float = 1.0,
-        step_penalty: float = 0.1,
-        wait_weight: float = 1.0,
-    ):
-        # Store graph and parameters
-        self.data = data
-        self.start_node = start_node
-        self.end_node = end_node
-        self.num_nodes = data.num_nodes
-
-        # Static node feature: where traffic lights exist
-        self.traffic_lights = data.x[:, 0].bool()
-
-        # Reward parameters
-        self.goal_bonus = goal_bonus
-        self.dead_end_penalty = dead_end_penalty
-        self.max_wait = max_wait
-        self.revisit_penalty = revisit_penalty
-        self.step_penalty = step_penalty
-        self.wait_weight = wait_weight
-
-        # Precompute static edge travel times
-        lengths = data.edge_attr[:, 0]
-        speeds_kmh = data.edge_attr[:, 1]
-        speeds_ms = speeds_kmh / 3.6
-        self.edge_travel_times = lengths / speeds_ms
-
-        # Build adjacency for neighbor lookups
-        self.adj = build_adjecency_matrix(self.num_nodes, data)
-
-        # Initialize dynamic state and visited set
+        self, 
+        static_dataset: list[Data]|Dataset,
+        dynamic_feature_getter: DynamicFeatureGetter,
+        penalty_calculator: PenaltyCalculator,
+        max_steps: int = 30,
+        ):
+        self.static_dataset = static_dataset 
+        self.dynamic_feature_getter = dynamic_feature_getter
+        self.penalty_calculator = penalty_calculator
+        self.max_steps = max_steps
+        
         self.reset()
-
+        
+    
     def reset(self):
-        """
-        Reset to start node and sample initial dynamic features.
-        Returns initial observation.
-        """
-        self.current_node = self.start_node
-        self.done = False
         
-        # Sample dynamic features fresh each episode
-        dev = self.traffic_lights.device
-        rand_bits = torch.randint(0, 2, (self.num_nodes,), dtype=torch.bool, device=dev)    # get random bits
-        self.light_status = rand_bits & self.traffic_lights                                 # if there is a traffic light, set status from random bits
-        self.waiting_times = torch.rand(self.num_nodes, device = dev) * self.max_wait       # set random waiting time
-        
-        # Reset visited
-        self.visited = {self.start_node}
-        return self._get_obs()
-
-    def _get_obs(self):
-        """
-        Build observation with combined static+dynamic node features.
-        Returns (obs_data, current_node).
-        obs_data.x columns: [traffic_light, light_status, waiting_time]
-        """
-        x = torch.stack([
-            self.traffic_lights.to(torch.float),        # static feature
-            self.light_status.to(torch.float),          # dynamic feature
-            self.waiting_times                          # dynamic feature
-        ], dim=1)                                       # this constructs the feature matrix - shape is [Nx3] (3 is nr of features in this case )
-        
-        obs_data = Data(
-            x=x,
-            edge_index=self.data.edge_index,
-            edge_attr=self.data.edge_attr
-        )                                               # packs into a new Data object with node and edge information - Policy needs PyG Data object
-        
-        # obs_data.valid_actions = [
-        #     v for v, _ in self.adj[self.current_node]
-        #     if v not in self.visited
-        # ]                                               # attach valid actions (neighbors not yet visited)
-        # All neighbors are valid actions now (including revisits)
-        obs_data.valid_actions = [v for v, _ in self.adj[self.current_node]]
-        return obs_data, self.current_node
-        
-
-    def step(self, action: int):
-        """
-        Execute action, update dynamic features, compute reward.
-        Returns (obs, reward, done, info).
-        """
-        
-        # Compute the travel time
-        edge_idx = next(idx for (v, idx) in self.adj[self.current_node] if v == action)
-        travel_t = self.edge_travel_times[edge_idx]
-        # Add waiting time if traffic light is red, when the traffic light is green there is no waiting time
-        if self.traffic_lights[action] and not self.light_status[action]:
-            wait_t = float(self.waiting_times[action].item())
+        if isinstance(self.static_dataset, Dataset):
+            nr_of_graphs = self.static_dataset.len()
+            graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
+            self.static_data = self.static_dataset.get(graph_idx)
+        elif isinstance(self.static_dataset, list):
+            nr_of_graphs = len(self.static_dataset)
+            graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
+            self.static_data = self.static_dataset[graph_idx]
         else:
-            wait_t = 0.0
-
-        reward = - (travel_t + self.wait_weight * wait_t) / 10.0
-        reward -= self.step_penalty         # Step penalty for each action taken
+            raise ValueError("Dataset must be a list of Data objects or a Dataset object.")
         
-        # Add penalty for revisiting a node 
-        if action in self.visited:
-            reward -= self.revisit_penalty
+        # self.start_node = self.data.start_node
+        # self.end_node = self.data.end_node 
+        # self.num_nodes = self.data.num_nodes
+        # self.current_node = self.start_node
         
-        # Move to next node and mark the last node as visited
-        self.current_node = action
-        self.visited.add(action)
+        # adjacency matrix
+        # self.adjecency_matrix = build_adjecency_matrix(self.num_nodes, self.data)
+        self.steps_taken = 0
+        self.terminated = False
+        self.truncated = False
 
-        # Re-sample dynamic features for next step
-        dev = self.traffic_lights.device
-        rand_bits = torch.randint(0, 2, (self.num_nodes,), dtype=torch.bool, device=dev)        # random bit
-        self.light_status   = rand_bits & self.traffic_lights                                   # if there is a traffic light, set status from random bits
-        self.waiting_times  = torch.rand(self.num_nodes, device=dev) * self.max_wait            # set random waiting time
-
-        # Terminal checks: if end node reached goal it gets a bonus, otherwise it gets a penalty if it doesn't reach the end node
-        if self.current_node == self.end_node:
-            self.done = True
-            reward += self.goal_bonus
+        return self._get_state()
+    
+    def _get_state(self, action=None):
+        """
+        Get the current state of the environment.
+        """
+        # resample dynamic features
+        dynamic_features = self.dynamic_feature_getter.get_dynamic_features(self, traffic_light_idx=0, max_wait = 10.0)
+        # get static features
+        static_features = self.static_data
+        # get current node
+        if action is not None:
+            current_node = action
         else:
-            no_moves = all(v in self.visited for v, _ in self.adj[self.current_node])   # technically not used anymore - can revisit nodes
-            if no_moves:
-                self.done = True
-                reward -= self.dead_end_penalty
+            current_node = self.static_data.start_node
 
-        return self._get_obs(), reward, self.done, {}
+        # get adjecency matrix
+        adjecency_matrix = build_adjecency_matrix(self.static_data.num_nodes, self.static_data)
+        
+        # get valid actions
+        valid_actions = self.get_valid_actions(adjecency_matrix)
+        
+        # get visited nodes
+        visited_nodes = self.update_visited_nodes(action)
+        
+        state = State(
+            static_data=static_features,
+            dynamic_data=dynamic_features,
+            start_node=self.static_data.start_node,
+            end_node=self.static_data.end_node,
+            num_nodes=self.static_data.num_nodes,
+            current_node=current_node,
+            visited_nodes=visited_nodes,
+            valid_actions=valid_actions
+        )
+        
+        return state
+    
+    def step(self, action):
+        """
+        Take a step in the environment using the given action.
+        """
+        old_state = self.states[-1] if self.states else None
+        
+        if self.steps_taken >= self.max_steps:
+            self.truncated = True
+            return old_state, reward, self.terminated, self.truncated, {}
+        self.steps_taken += 1
+        
+        # Check if action is valid
+        if action not in old_state.valid_actions:
+            raise ValueError(f"Invalid action {action} from node {new_state.current_node}.")
+        
+        new_state = self._get_state(action)
+        
+        # Compute the travel time 
+        edge_idx = next(idx for (v, idx) in self.adjecency_matrix[new_state.current_node] if v == action)
+        travel_time_edge = calculate_edge_travel_time(
+            self.static_data, 
+            edge_index=edge_idx, 
+            length_feature_idx=0, 
+            speed_feature_idx=1
+        )
 
-    def get_valid_actions(self):
+        # Compute the reward 
+        penalty = self.penalty_calculator.calculate_penalty(self, action)
+        reward = - travel_time_edge + penalty        
+        
+        return new_state, reward, self.terminated, self.truncated, {}
+
+    def get_valid_actions(self, adj_matrix: dict[int, list[tuple[int, int]]]) -> list[int]:
         """
-        Return neighbors of current_node not yet visited.
+        Return valid actions (neighbors) based on the adjacency matrix.
         """
-        # return [v for v, _ in self.adj[self.current_node] if v not in self.visited]
-        return [v for v, _ in self.adj[self.current_node]]
+        return [v for v, _ in adj_matrix[self.current_node]]
+    
+    def update_visited_nodes(self, action):
+        # TODO: check if this is correct
+        if not self.states.visited_nodes:
+            return [self.state.start_node]
+        return self.states[-1].visited_nodes.append(action)

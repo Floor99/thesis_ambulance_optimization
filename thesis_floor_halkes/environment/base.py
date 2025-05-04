@@ -17,7 +17,7 @@ class Environment(ABC):
         pass
     
     @abstractmethod
-    def get_state(self) -> State:
+    def _get_state(self) -> State:
         """
         Get the current state of the environment.
 
@@ -45,3 +45,4 @@ class Environment(ABC):
         Get the valid actions based on the adjacency matrix.
         """
         pass
+    

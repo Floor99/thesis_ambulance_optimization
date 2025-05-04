@@ -175,9 +175,12 @@ class RandomGraphDataset(Dataset):
 
         # 3) (Optionally) tag it
         data.graph_id = idx
+        start = torch.randint(0, num_nodes, (1,)).item()
+        end   = torch.randint(0, num_nodes, (1,)).item()
+        data.start_node = start
+        data.end_node   = end
+        
         return data
-    
-    
     
     
     
