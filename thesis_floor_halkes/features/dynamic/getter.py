@@ -11,7 +11,10 @@ class DynamicFeatureGetter(ABC):
     Abstract base class for dynamic feature getters.
     """
     @abstractmethod
-    def get_dynamic_features(self):
+    def get_dynamic_features(self, 
+                             environment: Environment,
+                             traffic_light_idx: int,
+                             max_wait: float = 10.0) -> Data:
         """
         Abstract method to get dynamic features.
         """
