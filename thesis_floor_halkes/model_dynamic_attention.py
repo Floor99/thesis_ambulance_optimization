@@ -423,48 +423,91 @@ class PolicyNetworkGATDynamicAttention(nn.Module):
         # decode action
         return self.decoder(h_d, current_node, valid_actions)
 
-
+################# only attention weight 
+# class AttentionDecoderChat(nn.Module):
+#     def __init__(self, embed_dim, num_heads):
+#         super().__init__()
+#         self.query_proj = nn.Linear(embed_dim, embed_dim)
+#         self.key_proj = nn.Linear(embed_dim, embed_dim)
+#         self.value_proj = nn.Linear(embed_dim, embed_dim)
+#         self.attn = nn.MultiheadAttention(embed_dim, num_heads)
+    
+    
+#     def forward(self, node_embeddings, current_node_idx, invalid_action_mask=None):
+#         # Project query (current node embedding)
+#         query = self.query_proj(node_embeddings[current_node_idx])
+#         query = query.unsqueeze(0).unsqueeze(0)
+#         # [1, 1, D]
+#         # Project keys/values (all nodes)
+#         keys = self.key_proj(node_embeddings).unsqueeze(1)   # [N, 1, D]
+#         values = self.value_proj(node_embeddings).unsqueeze(1)
+#         # [N, 1, D]
+#         if invalid_action_mask is not None:
+#             # print(f"invalid_action_mask shape = {invalid_action_mask.shape}")
+#             invalid_action_mask = invalid_action_mask.squeeze(0)
+#         # [1, N]
+#         # Run attention
+#         _, attn_weights = self.attn(query, keys, values, key_padding_mask=None)
+#         logits = attn_weights.squeeze(0).squeeze(0)  # [N]
+#         logits[invalid_action_mask] = float('-1e9')
+        
+#         # Masked logits will have very low values — so softmax still works correctly
+#         probs = F.softmax(logits, dim=-1)
+#         # Sample action and compute log-prob
+#         dist = torch.distributions.Categorical(probs)
+#         action = dist.sample()
+#         log_prob = dist.log_prob(action)
+#         return action.item(), log_prob, logits
+    
+    
 class AttentionDecoderChat(nn.Module):
     def __init__(self, embed_dim, num_heads):
         super().__init__()
+        self.embed_dim = embed_dim
+
         self.query_proj = nn.Linear(embed_dim, embed_dim)
         self.key_proj = nn.Linear(embed_dim, embed_dim)
         self.value_proj = nn.Linear(embed_dim, embed_dim)
         self.attn = nn.MultiheadAttention(embed_dim, num_heads)
-    
-    
+
+        # Output scoring head: maps [context || node_embedding] → logit
+        self.out_proj = nn.Sequential(
+            nn.Linear(embed_dim * 2, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, 1)
+        )
+
     def forward(self, node_embeddings, current_node_idx, invalid_action_mask=None):
-        # Project query (current node embedding)
-        query = self.query_proj(node_embeddings[current_node_idx])
-        query = query.unsqueeze(0).unsqueeze(0)
-        # [1, 1, D]
-        # Project keys/values (all nodes)
-        keys = self.key_proj(node_embeddings).unsqueeze(1)   # [N, 1, D]
-        values = self.value_proj(node_embeddings).unsqueeze(1)
-        # [N, 1, D]
+        N = node_embeddings.size(0)
+        device = node_embeddings.device
+
+        # --- 1. Project Q, K, V ---
+        query = self.query_proj(node_embeddings[current_node_idx]).unsqueeze(0).unsqueeze(0)  # [1, 1, D]
+        keys = self.key_proj(node_embeddings).unsqueeze(1)     # [N, 1, D]
+        values = self.value_proj(node_embeddings).unsqueeze(1) # [N, 1, D]
+
+        # --- 2. Compute attention context ---
+        attn_output, _ = self.attn(query, keys, values, key_padding_mask=None)  # [1, 1, D]
+        context = attn_output.squeeze(0).squeeze(0)  # [D]
+
+        # --- 3. Expand context and concat with node embeddings ---
+        context_expanded = context.expand(N, -1)  # [N, D]
+        concat = torch.cat([context_expanded, node_embeddings], dim=-1)  # [N, 2D]
+
+        # --- 4. Score each node ---
+        logits = self.out_proj(concat).squeeze(-1)  # [N]
+
+        # --- 5. Mask invalid actions ---
         if invalid_action_mask is not None:
-            # print(f"invalid_action_mask shape = {invalid_action_mask.shape}")
-            invalid_action_mask = invalid_action_mask.squeeze(0)
-        # [1, N]
-        # Run attention
-        _, attn_weights = self.attn(query, keys, values, key_padding_mask=None)
-        logits = attn_weights.squeeze(0).squeeze(0)  # [N]
-        print(logits)
-        print(invalid_action_mask)
-        print(f"Logits shape: {logits.shape}")
-        logits[invalid_action_mask] = float('-1e9')
-        print(logits)
-        
-        # Masked logits will have very low values — so softmax still works correctly
-        probs = F.softmax(logits, dim=-1)
-        # Sample action and compute log-prob
-        dist = torch.distributions.Categorical(probs)
+            logits[invalid_action_mask] = float('-1e9')
+
+        # --- 6. Sample action ---
+        probs = F.softmax(logits, dim=0)
+        dist = Categorical(probs)
         action = dist.sample()
         log_prob = dist.log_prob(action)
-        print(f"{log_prob= }")
+
         return action.item(), log_prob, logits
-    
-    
     
     
     

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import List
 
 import torch
 from torch_geometric.data import Data
@@ -24,7 +25,7 @@ class RandomDynamicFeatureGetter(DynamicFeatureGetter):
     """
     Random dynamic feature getter that generates random features.
     """
-    def get_dynamic_features(self, environment:Environment, traffic_light_idx:int, max_wait: float = 10.0):
+    def get_dynamic_features(self, environment:Environment, traffic_light_idx:int, current_node:int, visited_nodes:List[int], max_wait: float = 10.0):
         """
         Generate random dynamic features.
         """
@@ -34,9 +35,17 @@ class RandomDynamicFeatureGetter(DynamicFeatureGetter):
         light_status = rand_bits & traffic_lights # if there is a traffic light, set status from random bits
         waiting_times = torch.rand(num_nodes) * max_wait # set random waiting time
         
+        is_current_node = torch.zeros(num_nodes)
+        is_current_node[current_node] = 1.0 # set current node to 1.0
+        
+        is_visited = torch.zeros(num_nodes)
+        is_visited[visited_nodes] = 1.0
+        
         x = torch.stack([
             light_status.to(torch.float),          # dynamic feature
-            waiting_times                          # dynamic feature
+            waiting_times,                          # dynamic feature
+            is_current_node,
+            is_visited,
         ], dim=1)
         
         data = Data(

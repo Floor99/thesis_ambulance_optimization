@@ -28,12 +28,12 @@ class DynamicEnvironment(Environment):
         self, 
         static_dataset: list[Data]|Dataset,
         dynamic_feature_getter: DynamicFeatureGetter,
-        penalty_calculator: PenaltyCalculator,
+        reward_modifier_calculator: PenaltyCalculator,
         max_steps: int = 30,
         ):
         self.static_dataset = static_dataset 
         self.dynamic_feature_getter = dynamic_feature_getter
-        self.penalty_calculator = penalty_calculator
+        self.reward_modifier_calculator = reward_modifier_calculator
         self.max_steps = max_steps
         
         # self.reset()
@@ -62,6 +62,7 @@ class DynamicEnvironment(Environment):
         init_state = self._get_state()
         self.states.append(init_state)
         print("Initial state:")
+        print(f"{self.states= }")
         print(f"{init_state.start_node= } {init_state.end_node= } {init_state.current_node= } {init_state.visited_nodes= } {init_state.valid_actions= }")
 
         return init_state
@@ -70,10 +71,6 @@ class DynamicEnvironment(Environment):
         """
         Get the current state of the environment.
         """
-        # resample dynamic features
-        dynamic_features = self.dynamic_feature_getter.get_dynamic_features(environment=self, traffic_light_idx=0, max_wait = 10.0)
-        # get static features
-        static_features = self.static_data
         
         if action is not None:
             current_node = action
@@ -84,6 +81,15 @@ class DynamicEnvironment(Environment):
             current_node = self.static_data.start_node
             visited_nodes = [self.static_data.start_node]
             
+        # resample dynamic features
+        dynamic_features = self.dynamic_feature_getter.get_dynamic_features(environment=self, 
+                                                                            traffic_light_idx=0, 
+                                                                            current_node = current_node, 
+                                                                            visited_nodes = visited_nodes, 
+                                                                            max_wait = 10.0)
+        print(f"Dynamic features: {dynamic_features.x= }")
+        # get static features
+        static_features = self.static_data
         
         # get valid actions
         valid_actions = self.get_valid_actions(self.adjecency_matrix, current_node)
@@ -112,7 +118,7 @@ class DynamicEnvironment(Environment):
             return old_state, reward, self.terminated, self.truncated, {}
         
         self.steps_taken += 1
-        print(f"Step {self.steps_taken}: {action= }")
+        print(f"\n\n Step {self.steps_taken}: {action= }")
         
         
         new_state = self._get_state(action)
@@ -122,6 +128,7 @@ class DynamicEnvironment(Environment):
         print("New state:")
         print(f"{new_state.current_node= } {new_state.visited_nodes= } {new_state.valid_actions= }")
         self.states.append(new_state)
+        print(f"features: {new_state.dynamic_data.x= }, static: {new_state.static_data.x= }")
         
         # Check if action is valid
         if action not in old_state.valid_actions:
@@ -137,8 +144,23 @@ class DynamicEnvironment(Environment):
         )
 
         # Compute the reward 
-        # penalty = self.penalty_calculator.calculate_penalty(self, action)
-        reward = - travel_time_edge #+ penalty        
+        penalty = self.reward_modifier_calculator.calculate_total(visited_nodes = old_state.visited_nodes,
+                                                            action= action,
+                                                            current_node= new_state.current_node,
+                                                            end_node= new_state.end_node,
+                                                            environment = self)
+        print(f"Penalty: {penalty}")
+        print(f"Travel time edge: {travel_time_edge}")
+        reward = - travel_time_edge + penalty        
+        print(f"Reward: {reward}")
+        
+        if new_state.current_node == new_state.end_node:
+            self.terminated = True
+            print("Reached end node.")
+
+        if self.steps_taken >= self.max_steps:
+            self.truncated = True
+            print("Reached max steps.")
         
         return new_state, reward, self.terminated, self.truncated, {}
 

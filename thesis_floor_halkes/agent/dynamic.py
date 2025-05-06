@@ -16,6 +16,8 @@ class DynamicAgent(Agent):
         dynamic_encoder: nn.Module,
         decoder: nn.Module,
         baseline: nn.Module = None,
+        lr: float = 1e-3,
+        gamma: float = 0.99,
     ):
         """
         Initialize the dynamic agent with static and dynamic encoders and a decoder.
@@ -29,14 +31,27 @@ class DynamicAgent(Agent):
         self.dynamic_encoder = dynamic_encoder
         self.decoder = decoder
         self.baseline = baseline
-
+        self.gamma = gamma
+        
+        params = (
+            list(static_encoder.parameters()) +
+            list(dynamic_encoder.parameters()) +
+            list(decoder.parameters())
+        )
+        
+        if baseline is not None:
+            params += list(baseline.parameters()) # get_learnable_parameters() ?!
+        
+        self.optimizer = torch.optim.Adam(params, lr=lr)
+        
         self.states = []  # list van states en dan telkens in select de laatste state pakken?
         self.actions = []
         self.action_log_probs = []
         self.rewards = []
         self.penalties = []
         self.baselines = []  # --> is dit nodig?
-
+        self.embeddings = []
+        
     def _embed_graph(self, data, graph_type="static"):
         if graph_type == "static":
             x_static = data.x
@@ -57,6 +72,13 @@ class DynamicAgent(Agent):
             (static_embedding, dynamic_embedding), dim=1
         )  # overwegen om naar + ipv cat te doen
         
+        graph_embedding = final_embedding.mean(dim=0).detach()  # mean pooling over nodes
+        
+        self.embeddings.append({"static": static_embedding, 
+                        "dynamic": dynamic_embedding, 
+                        "final": final_embedding,
+                        "graph": graph_embedding})
+        
         invalid_action_mask = self._get_action_mask(
             state.valid_actions, state.static_data.num_nodes
         )
@@ -66,12 +88,6 @@ class DynamicAgent(Agent):
             current_node_idx=state.current_node,
             invalid_action_mask=invalid_action_mask,
         )
-        
-        # action, action_log_prob = self.decoder(
-        #     final_embedding, 
-        #     state.current_node,
-        #     state.valid_actions,
-        # )
 
         return action, action_log_prob
     
@@ -108,33 +124,24 @@ class DynamicAgent(Agent):
 
         returns = torch.tensor(returns)
 
-        # 2) Evaluate baseline(s)
+        # 2) Evaluate baseline(s) # Use the collected states to compute baselines
         if self.baseline is not None:
-            # Use the collected states to compute baselines
-            baselines, loss_b = self.baseline.eval(self.states, returns)
-
-        # 3) Compute advantages
-        advantages = returns - baselines
-
-        # 4) Actor loss
+            baselines, loss_b = self.baseline.eval(self.embeddings, returns)
+            advantages = returns - baselines.detach() # detach????
+        else: 
+            advantages = returns
+            loss_b = 0
+        
+        # 4) Policy loss
         log_probs_tensor = torch.stack(self.action_log_probs)
-        actor_loss = -(log_probs_tensor * advantages.detach()).mean()
+        policy_loss = -(log_probs_tensor * advantages).mean()
 
-        # 5) Total loss = actor + baseline loss
-        loss = actor_loss + loss_b  # if self.baseline is not None else actor_loss
-
-        # 6) Backprop
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        # # 7) Reset                 --> dit dan in reset() ? dan moet je dat ook wel weer aanroepen in train()
-        # self.action_log_probs.clear()  --> of hier _reset() aanroepen?
-        # self.rewards.clear()
-        # self.states.clear()
-
-        return actor_loss, loss_b  # if self.baseline is not None else actor_loss
-
+        # 5) Total loss = policy + baseline loss
+        total_loss = policy_loss + loss_b
+            
+        # return loss, policy_loss, loss_b #if self.baseline is not None else loss, policy_loss
+        return total_loss, policy_loss, loss_b
+            
     def reset(self):
         self.action_log_probs.clear()
         self.rewards.clear()
@@ -142,6 +149,9 @@ class DynamicAgent(Agent):
         self.actions.clear()
         self.penalties.clear()
         self.baselines.clear()
+        self.embeddings.clear()
 
-    def update(self):
-        pass
+    def update(self, loss):
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
