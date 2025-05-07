@@ -2,12 +2,12 @@ import random
 from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.batch.graph_data_batch import GraphGenerator, RandomGraphPytorchDataset
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, RandomDynamicFeatureGetter
-from thesis_floor_halkes.penalties.calculator import PenaltyCalculator, RewardModifierCalculator
+from thesis_floor_halkes.penalties.calculator import RewardModifierCalculator
 from thesis_floor_halkes.penalties.revisit_node_penalty import DeadEndPenalty, GoalBonus, PenaltyPerStep, RevisitNodePenalty, WaitTimePenalty
 from thesis_floor_halkes.baselines.critic_network import CriticBaseline
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
-from thesis_floor_halkes.model_dynamic_attention import GATModelEncoderStatic, DynamicGATEncoder, AttentionDecoderChat, AttentionDecoder2
+from thesis_floor_halkes.model_dynamic_attention import DynamicGATEncoder, StaticGATEncoder, DynamicGATConvEncoder, AttentionDecoderChat
 from thesis_floor_halkes.utils.reward_logger import RewardLogger
 from thesis_floor_halkes.utils.simulate_dijkstra import simulate_dijkstra_path_cost
 
@@ -47,7 +47,7 @@ env = DynamicEnvironment(
 
 hidden_size = 64
 input_dim = hidden_size * 2
-static_encoder = GATModelEncoderStatic(in_channels=1, hidden_size=hidden_size, edge_attr_dim=2)
+static_encoder = StaticGATEncoder(in_channels=1, hidden_size=hidden_size, edge_attr_dim=2)
 dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size)
 decoder = AttentionDecoderChat(embed_dim=hidden_size * 2, num_heads=4)
 
@@ -59,11 +59,12 @@ agent = DynamicAgent(
     decoder= decoder,
     baseline=baseline,
 )
+agent.routes.clear()
 
 logger = RewardLogger(smooth_window = 20)
 
-for episode in range(20):
-    for graph in dataset:
+for graph in dataset:
+    for episode in range(30):
         total_reward = 0 
         print('\n NEW GRAPH')
         state = env.reset()
@@ -76,18 +77,16 @@ for episode in range(20):
             agent.store_reward(reward)
             total_reward += reward
             state = new_state
-            
             if terminated or truncated:
                 break
-        
-        
+
         total_loss, policy_loss, value_loss = agent.finish_episode()
         agent.reset()
         agent.update(total_loss)
         num_nodes = state.static_data.x.size(0)
         logger.log(total_reward,num_nodes)
         
-        if episode % 10 == 0:
+        if episode % 1 == 0:
             print(f"{episode= }")
             logger.summary()
         

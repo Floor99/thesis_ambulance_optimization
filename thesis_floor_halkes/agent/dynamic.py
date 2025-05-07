@@ -2,6 +2,7 @@ from thesis_floor_halkes.agent.base import Agent
 import torch.nn as nn
 import torch
 
+from thesis_floor_halkes.model_dynamic_attention import FixedContext
 from thesis_floor_halkes.state import State
 
 
@@ -29,6 +30,7 @@ class DynamicAgent(Agent):
         """
         self.static_encoder = static_encoder
         self.dynamic_encoder = dynamic_encoder
+        self.fixed_context = None
         self.decoder = decoder
         self.baseline = baseline
         self.gamma = gamma
@@ -49,8 +51,10 @@ class DynamicAgent(Agent):
         self.action_log_probs = []
         self.rewards = []
         self.penalties = []
-        self.baselines = []  # --> is dit nodig?
+        self.baselines = []
         self.embeddings = []
+        self.routes = [] # list with list of integers --> all routes of training session
+        self.current_route = []
         
     def _embed_graph(self, data, graph_type="static"):
         if graph_type == "static":
@@ -66,11 +70,17 @@ class DynamicAgent(Agent):
             raise ValueError("Invalid graph type. Use 'static' or 'dynamic'.")
 
     def select_action(self, state: State):
-        static_embedding = self._embed_graph(state.static_data, graph_type="static")
+        # static_embedding = self._embed_graph(state.static_data, graph_type="static")
+        if self.fixed_context is None:
+            static_embedding = self._embed_graph(state.static_data, graph_type="static")
+            self.fixed_context = FixedContext(static_embedding)
+        else: 
+            static_embedding = self.fixed_context.static_embedding
+            
         dynamic_embedding = self._embed_graph(state.dynamic_data, graph_type="dynamic")
         final_embedding = torch.cat(
             (static_embedding, dynamic_embedding), dim=1
-        )  # overwegen om naar + ipv cat te doen
+        )                                                       # overwegen om naar + ipv cat te doen
         
         graph_embedding = final_embedding.mean(dim=0).detach()  # mean pooling over nodes
         
@@ -88,6 +98,12 @@ class DynamicAgent(Agent):
             current_node_idx=state.current_node,
             invalid_action_mask=invalid_action_mask,
         )
+        
+        if not self.current_route: 
+            self.current_route.append(state.start_node)
+        
+        self.current_route.append(action)
+        print(f"Current route: {self.current_route}")
 
         return action, action_log_prob
     
@@ -98,6 +114,9 @@ class DynamicAgent(Agent):
         action_mask = torch.ones(num_nodes, dtype=torch.bool)
         action_mask[valid_actions] = 0
         return action_mask
+    
+    def store_baseline(self, baseline):
+        self.baselines.append(baseline)
 
     def store_state(self, state: State):
         self.states.append(state)
@@ -138,6 +157,8 @@ class DynamicAgent(Agent):
 
         # 5) Total loss = policy + baseline loss
         total_loss = policy_loss + loss_b
+        
+        self.routes.append(self.current_route.copy())
             
         # return loss, policy_loss, loss_b #if self.baseline is not None else loss, policy_loss
         return total_loss, policy_loss, loss_b
@@ -150,7 +171,9 @@ class DynamicAgent(Agent):
         self.penalties.clear()
         self.baselines.clear()
         self.embeddings.clear()
-
+        self.fixed_context = None
+        self.current_route.clear()
+        
     def update(self, loss):
         self.optimizer.zero_grad()
         loss.backward()

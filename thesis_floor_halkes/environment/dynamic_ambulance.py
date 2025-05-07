@@ -62,7 +62,6 @@ class DynamicEnvironment(Environment):
         init_state = self._get_state()
         self.states.append(init_state)
         print("Initial state:")
-        print(f"{self.states= }")
         print(f"{init_state.start_node= } {init_state.end_node= } {init_state.current_node= } {init_state.visited_nodes= } {init_state.valid_actions= }")
 
         return init_state
@@ -87,7 +86,6 @@ class DynamicEnvironment(Environment):
                                                                             current_node = current_node, 
                                                                             visited_nodes = visited_nodes, 
                                                                             max_wait = 10.0)
-        print(f"Dynamic features: {dynamic_features.x= }")
         # get static features
         static_features = self.static_data
         
@@ -128,7 +126,6 @@ class DynamicEnvironment(Environment):
         print("New state:")
         print(f"{new_state.current_node= } {new_state.visited_nodes= } {new_state.valid_actions= }")
         self.states.append(new_state)
-        print(f"features: {new_state.dynamic_data.x= }, static: {new_state.static_data.x= }")
         
         # Check if action is valid
         if action not in old_state.valid_actions:
@@ -149,8 +146,7 @@ class DynamicEnvironment(Environment):
                                                             current_node= new_state.current_node,
                                                             end_node= new_state.end_node,
                                                             environment = self)
-        print(f"Penalty: {penalty}")
-        print(f"Travel time edge: {travel_time_edge}")
+
         reward = - travel_time_edge + penalty        
         print(f"Reward: {reward}")
         

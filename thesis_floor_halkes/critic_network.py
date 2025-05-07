@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from model_dynamic_attention import GATModelEncoderStatic, DynamicGATEncoder
+from model_dynamic_attention import StaticGATEncoder, DynamicGATConvEncoder
 from torch_geometric.nn import global_mean_pool
 
 class CriticNetwork(nn.Module):
@@ -8,7 +8,7 @@ class CriticNetwork(nn.Module):
         super().__init__()
 
         # Static encoder (with edge attributes)
-        self.static_encoder = GATModelEncoderStatic(
+        self.static_encoder = StaticGATEncoder(
             in_channels=in_static,
             hidden_size=hidden_size,
             out_size=hidden_size,
@@ -19,7 +19,7 @@ class CriticNetwork(nn.Module):
         )
 
         # Dynamic encoder (no edge attributes)
-        self.dynamic_encoder = DynamicGATEncoder(
+        self.dynamic_encoder = DynamicGATConvEncoder(
             in_channels=in_dynamic,
             hidden_size=hidden_size,
             heads=1,
