@@ -86,7 +86,7 @@ class Agent(ABC):
         pass
 
     @abstractmethod
-    def update(self):
+    def backprop_model(self):
         """
         Update the agent's policy based on the stored rewards and actions.
         """

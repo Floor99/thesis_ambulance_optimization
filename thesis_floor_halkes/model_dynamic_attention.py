@@ -163,14 +163,16 @@ class AttentionDecoderChat(nn.Module):
         query = self.query_proj(node_embeddings[current_node_idx]).unsqueeze(0).unsqueeze(0)  # [1, 1, D]
         keys = self.key_proj(node_embeddings).unsqueeze(1)     # [N, 1, D]
         values = self.value_proj(node_embeddings).unsqueeze(1) # [N, 1, D]
-
+        print(f"{query.shape= } {keys.shape= } {values.shape= }")
+        
         # --- 2. Compute attention context ---
         attn_output, _ = self.attn(query, keys, values, key_padding_mask=None)  # [1, 1, D]
         context = attn_output.squeeze(0).squeeze(0)  # [D]
-
+        print(f"{context.shape= }, {attn_output.shape= }")
         # --- 3. Expand context and concat with node embeddings ---
         context_expanded = context.expand(N, -1)  # [N, D]
         concat = torch.cat([context_expanded, node_embeddings], dim=-1)  # [N, 2D]
+        print(f"{context_expanded.shape= }, {concat.shape= }")
 
         # --- 4. Score each node ---
         logits = self.out_proj(concat).squeeze(-1)  # [N]

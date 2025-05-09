@@ -1,8 +1,9 @@
 from thesis_floor_halkes.agent.base import Agent
 import torch.nn as nn
 import torch
-
-from thesis_floor_halkes.model_dynamic_attention import FixedContext
+import torch.nn.functional as F
+from thesis_floor_halkes.model.encoders import CacheStaticEmbedding
+# from thesis_floor_halkes.model_dynamic_attention import FixedContext
 from thesis_floor_halkes.state import State
 
 
@@ -16,6 +17,7 @@ class DynamicAgent(Agent):
         static_encoder: nn.Module,
         dynamic_encoder: nn.Module,
         decoder: nn.Module,
+        fixed_context: nn.Module,
         baseline: nn.Module = None,
         lr: float = 1e-3,
         gamma: float = 0.99,
@@ -30,8 +32,9 @@ class DynamicAgent(Agent):
         """
         self.static_encoder = static_encoder
         self.dynamic_encoder = dynamic_encoder
-        self.fixed_context = None
+        self.cached_static = None
         self.decoder = decoder
+        self.fixed_context = fixed_context
         self.baseline = baseline
         self.gamma = gamma
         
@@ -44,14 +47,14 @@ class DynamicAgent(Agent):
         if baseline is not None:
             params += list(baseline.parameters()) # get_learnable_parameters() ?!
         
-        self.optimizer = torch.optim.Adam(params, lr=lr)
+        
         
         self.states = []  # list van states en dan telkens in select de laatste state pakken?
         self.actions = []
         self.action_log_probs = []
         self.rewards = []
         self.penalties = []
-        self.baselines = []
+        self.baseline_values = []
         self.embeddings = []
         self.routes = [] # list with list of integers --> all routes of training session
         self.current_route = []
@@ -70,19 +73,19 @@ class DynamicAgent(Agent):
             raise ValueError("Invalid graph type. Use 'static' or 'dynamic'.")
 
     def select_action(self, state: State):
-        # static_embedding = self._embed_graph(state.static_data, graph_type="static")
-        if self.fixed_context is None:
+        if self.cached_static is None:
             static_embedding = self._embed_graph(state.static_data, graph_type="static")
-            self.fixed_context = FixedContext(static_embedding)
+            self.cached_static = CacheStaticEmbedding(static_embedding)
         else: 
-            static_embedding = self.fixed_context.static_embedding
-            
+            static_embedding = self.cached_static.static_embedding
+        
         dynamic_embedding = self._embed_graph(state.dynamic_data, graph_type="dynamic")
+        
         final_embedding = torch.cat(
             (static_embedding, dynamic_embedding), dim=1
-        )                                                       # overwegen om naar + ipv cat te doen
+        )                                                      
         
-        graph_embedding = final_embedding.mean(dim=0).detach()  # mean pooling over nodes
+        graph_embedding = final_embedding.mean(dim=0)#.detach()  # mean pooling over nodes
         
         self.embeddings.append({"static": static_embedding, 
                         "dynamic": dynamic_embedding, 
@@ -93,17 +96,20 @@ class DynamicAgent(Agent):
             state.valid_actions, state.static_data.num_nodes
         )
         
-        action, action_log_prob, _ = self.decoder(
-            final_embedding,
-            current_node_idx=state.current_node,
-            invalid_action_mask=invalid_action_mask,
+        context_vector = self.fixed_context(final_node_embeddings=final_embedding,
+                                            current_idx=state.current_node,
+                                            end_idx=state.end_node)
+        
+        action, action_log_prob = self.decoder(
+            context_vector = context_vector,
+            node_embeddings = final_embedding,
+            invalid_action_mask = invalid_action_mask,
         )
         
         if not self.current_route: 
             self.current_route.append(state.start_node)
         
         self.current_route.append(action)
-        print(f"Current route: {self.current_route}")
 
         return action, action_log_prob
     
@@ -115,8 +121,8 @@ class DynamicAgent(Agent):
         action_mask[valid_actions] = 0
         return action_mask
     
-    def store_baseline(self, baseline):
-        self.baselines.append(baseline)
+    def store_baseline_value(self, baseline_value):
+        self.baseline_values.append(baseline_value)
 
     def store_state(self, state: State):
         self.states.append(state)
@@ -134,7 +140,6 @@ class DynamicAgent(Agent):
         self.action_log_probs.append(log_prob)
 
     def finish_episode(self):
-        # 1) Compute raw discounted returns
         R = 0
         returns = []
         for r in reversed(self.rewards):
@@ -143,25 +148,20 @@ class DynamicAgent(Agent):
 
         returns = torch.tensor(returns)
 
-        # 2) Evaluate baseline(s) # Use the collected states to compute baselines
         if self.baseline is not None:
-            baselines, loss_b = self.baseline.eval(self.embeddings, returns)
-            advantages = returns - baselines.detach() # detach????
+            baseline_values = torch.stack(self.baseline_values)
+            advantages = returns - baseline_values.detach()
+            baseline_loss = F.mse_loss(baseline_values, returns)
         else: 
             advantages = returns
-            loss_b = 0
+            baseline_loss = 0
         
-        # 4) Policy loss
         log_probs_tensor = torch.stack(self.action_log_probs)
         policy_loss = -(log_probs_tensor * advantages).mean()
-
-        # 5) Total loss = policy + baseline loss
-        total_loss = policy_loss + loss_b
         
         self.routes.append(self.current_route.copy())
             
-        # return loss, policy_loss, loss_b #if self.baseline is not None else loss, policy_loss
-        return total_loss, policy_loss, loss_b
+        return policy_loss, baseline_loss
             
     def reset(self):
         self.action_log_probs.clear()
@@ -169,12 +169,12 @@ class DynamicAgent(Agent):
         self.states.clear()
         self.actions.clear()
         self.penalties.clear()
-        self.baselines.clear()
+        self.baseline_values.clear()
         self.embeddings.clear()
-        self.fixed_context = None
+        self.cached_static = None
         self.current_route.clear()
         
-    def update(self, loss):
-        self.optimizer.zero_grad()
+    def backprop_model(self, optimizer, loss):
+        optimizer.zero_grad()
         loss.backward()
-        self.optimizer.step()
+        optimizer.step()

@@ -1,4 +1,6 @@
 from typing import List
+
+import torch
 from thesis_floor_halkes.environment.base import Environment
 from thesis_floor_halkes.penalties.base import Penalty, Bonus
 
@@ -50,31 +52,6 @@ class PenaltyPerStep(Penalty):
         """
         return self.penalty
 
-class GoalBonus(Bonus):
-    """
-    Bonus for reaching the goal in the environment.
-    """
-
-    def __init__(self, name: str, bonus:float):
-        super().__init__(name, bonus)
-
-    def __call__(self, **kwargs) -> float:
-        """
-        Calculate the goal bonus.
-
-        Args:
-            environment: The environment to calculate the bonus for.
-            action: The action taken in the environment.
-
-        Returns:
-            The calculated bonus.
-        """
-        current_node = kwargs.get('current_node', int)
-        end_node = kwargs.get('end_node', int)
-        
-        if current_node == end_node:
-            return self.bonus
-        return 0.0
 
 class DeadEndPenalty(Penalty):
     """
@@ -132,3 +109,85 @@ class WaitTimePenalty(Penalty):
             return -(environment.states[-1].dynamic_data.x[:,1][action])
         return 0.0
 
+
+class GoalBonus(Bonus):
+    """
+    Bonus for reaching the goal in the environment.
+    """
+
+    def __init__(self, name: str, bonus:float):
+        super().__init__(name, bonus)
+
+    def __call__(self, **kwargs) -> float:
+        """
+        Calculate the goal bonus.
+
+        Args:
+            environment: The environment to calculate the bonus for.
+            action: The action taken in the environment.
+
+        Returns:
+            The calculated bonus.
+        """
+        current_node = kwargs.get('current_node', int)
+        end_node = kwargs.get('end_node', int)
+        
+        if current_node == end_node:
+            return self.bonus
+        return 0.0
+    
+class CloserToGoalBonus(Bonus):
+    """
+    Bonus for every step getting closer to the goal in the environment, based on Euclidean distance.
+    """
+    def __init__(self, name: str, bonus:float, data, end_node, scaled:bool = False
+                 ):
+        super().__init__(name, bonus)
+        self.pos = data.pos
+        self.goal_pos = data.pos[end_node]
+        self.scaled = scaled
+
+    def __call__(self, **kwargs) -> float:
+        """
+        Calculate the closer to goal bonus, based on Euclidean distance to goal each step.
+
+        Args:
+            environment: The environment to calculate the bonus for.
+            action: The action taken in the environment.
+
+        Returns:
+            The calculated bonus.
+        """
+        prev_idx = kwargs.get('prev_node', int)
+        curr_idx = kwargs.get('current_node', int)
+        
+        prev_pos = self.pos[prev_idx]
+        curr_pos = self.pos[curr_idx]
+        
+        d_prev = torch.dist(prev_pos, self.goal_pos)
+        dcurr = torch.dist(curr_pos, self.goal_pos)
+        delta = (d_prev - dcurr).item()
+        
+        if delta <= 0:
+            return 0.0
+
+        return self.bonus * (delta if self.scaled else 1.0)
+    
+class HigherSpeedBonus(Bonus):
+    """
+    Bonus for roads with a higher speed limit in the environment.
+    """
+    def __init__(self, name, bonus):
+        super().__init__(name, bonus)
+        
+        pass
+    
+class MoreLanesBonus(Bonus):
+    """
+    Bonus for roads with more lanes in the environment.
+    """
+    def __init__(self, name, bonus):
+        super().__init__(name, bonus)
+        
+        pass
+    

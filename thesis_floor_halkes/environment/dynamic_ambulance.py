@@ -2,8 +2,8 @@ from typing import List
 import torch
 from torch_geometric.data import Data, Dataset
 
-from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter
-from thesis_floor_halkes.penalties.calculator import PenaltyCalculator
+from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, RandomDynamicFeatureGetter
+from thesis_floor_halkes.penalties.calculator import PenaltyCalculator, RewardModifierCalculator
 from thesis_floor_halkes.state import State
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.utils.travel_time import calculate_edge_travel_time
@@ -11,36 +11,19 @@ from thesis_floor_halkes.environment.base import Environment
 from pprint import pprint
 
 class DynamicEnvironment(Environment):
-    """
-    Environment for ambulance routing with dynamic waiting times and light status.
-
-    Static:
-      - traffic_lights: bool vector [N] indicating where lights exist
-      - edge_index: connectivity
-      - edge_attr: [E×2] length, max_speed
-    Dynamic (re-sampled each step):
-      - light_status: bool vector [N] (0=red,1=green)
-      - waiting_times: float vector [N] seconds
-
-    Reward: negative (travel_time + wait_time), plus bonuses/penalties.
-    """
     def __init__(
         self, 
         static_dataset: list[Data]|Dataset,
-        dynamic_feature_getter: DynamicFeatureGetter,
-        reward_modifier_calculator: PenaltyCalculator,
+        dynamic_feature_getter: RandomDynamicFeatureGetter,
+        reward_modifier_calculator: RewardModifierCalculator,
         max_steps: int = 30,
         ):
         self.static_dataset = static_dataset 
         self.dynamic_feature_getter = dynamic_feature_getter
         self.reward_modifier_calculator = reward_modifier_calculator
         self.max_steps = max_steps
-        
-        # self.reset()
-        
     
     def reset(self):
-        
         if isinstance(self.static_dataset, Dataset):
             nr_of_graphs = self.static_dataset.len()
             graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
@@ -61,9 +44,7 @@ class DynamicEnvironment(Environment):
         self.states = []
         init_state = self._get_state()
         self.states.append(init_state)
-        print("Initial state:")
-        print(f"{init_state.start_node= } {init_state.end_node= } {init_state.current_node= } {init_state.visited_nodes= } {init_state.valid_actions= }")
-
+        
         return init_state
     
     def _get_state(self, action=None):
@@ -116,15 +97,10 @@ class DynamicEnvironment(Environment):
             return old_state, reward, self.terminated, self.truncated, {}
         
         self.steps_taken += 1
-        print(f"\n\n Step {self.steps_taken}: {action= }")
         
         
         new_state = self._get_state(action)
-        print("Old state:")
-        print(f"{old_state.current_node= } {old_state.visited_nodes= } {old_state.valid_actions= }")
         
-        print("New state:")
-        print(f"{new_state.current_node= } {new_state.visited_nodes= } {new_state.valid_actions= }")
         self.states.append(new_state)
         
         # Check if action is valid
@@ -148,15 +124,12 @@ class DynamicEnvironment(Environment):
                                                             environment = self)
 
         reward = - travel_time_edge + penalty        
-        print(f"Reward: {reward}")
         
         if new_state.current_node == new_state.end_node:
             self.terminated = True
-            print("Reached end node.")
 
         if self.steps_taken >= self.max_steps:
             self.truncated = True
-            print("Reached max steps.")
         
         return new_state, reward, self.terminated, self.truncated, {}
 
@@ -167,12 +140,4 @@ class DynamicEnvironment(Environment):
         return [v for v, _ in adj_matrix[current_node]]
     
     def update_visited_nodes(self, prev_visited_nodes:list[int], action):
-        # # TODO: check if this is correct
-        # if not self.states.visited_nodes:
-        #     return [self.states.start_node]
-        # return self.state[-1].visited_nodes.append(action)
-        
-        # prev_visited_nodes = self.states[-1].visited_nodes
-        # if not prev_visited_nodes:
-        #     return [self.states[-1].start_node]
         return prev_visited_nodes + [action]
