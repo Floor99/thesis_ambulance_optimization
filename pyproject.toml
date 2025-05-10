@@ -15,6 +15,10 @@ matplotlib = "^3.10.1"
 networkx = "^3.4.2"
 osmnx = "^2.0.2"
 tensorboard = "^2.19.0"
+scikit-learn = "^1.6.1"
+geopandas = "^1.0.1"
+pyarrow = "^20.0.0"
+fastparquet = "^2024.11.0"
 
 
 [tool.poetry.group.dev.dependencies]

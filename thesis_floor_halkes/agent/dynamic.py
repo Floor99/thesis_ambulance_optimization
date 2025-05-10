@@ -20,7 +20,7 @@ class DynamicAgent(Agent):
         fixed_context: nn.Module,
         baseline: nn.Module = None,
         lr: float = 1e-3,
-        gamma: float = 0.99,
+        gamma: float = 0.8,
     ):
         """
         Initialize the dynamic agent with static and dynamic encoders and a decoder.
@@ -58,6 +58,7 @@ class DynamicAgent(Agent):
         self.embeddings = []
         self.routes = [] # list with list of integers --> all routes of training session
         self.current_route = []
+        self.entropies = []
         
     def _embed_graph(self, data, graph_type="static"):
         if graph_type == "static":
@@ -100,7 +101,7 @@ class DynamicAgent(Agent):
                                             current_idx=state.current_node,
                                             end_idx=state.end_node)
         
-        action, action_log_prob = self.decoder(
+        action, action_log_prob, entropy = self.decoder(
             context_vector = context_vector,
             node_embeddings = final_embedding,
             invalid_action_mask = invalid_action_mask,
@@ -111,7 +112,7 @@ class DynamicAgent(Agent):
         
         self.current_route.append(action)
 
-        return action, action_log_prob
+        return action, action_log_prob, entropy
     
     def _get_action_mask(self, valid_actions: list[int], num_nodes: int) -> torch.Tensor:
         """
@@ -138,6 +139,9 @@ class DynamicAgent(Agent):
 
     def store_action_log_prob(self, log_prob):
         self.action_log_probs.append(log_prob)
+    
+    def store_entropy(self, entropy):
+        self.entropies.append(entropy)
 
     def finish_episode(self):
         R = 0
@@ -158,7 +162,8 @@ class DynamicAgent(Agent):
         
         log_probs_tensor = torch.stack(self.action_log_probs)
         policy_loss = -(log_probs_tensor * advantages).mean()
-        
+        entropy_loss = torch.stack(self.entropies).mean()
+        policy_loss = policy_loss - 0.999999 * entropy_loss
         self.routes.append(self.current_route.copy())
             
         return policy_loss, baseline_loss

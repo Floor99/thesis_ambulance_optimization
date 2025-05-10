@@ -14,7 +14,7 @@ from thesis_floor_halkes.agent.dynamic import DynamicAgent
 # from thesis_floor_halkes.model_dynamic_attention import DynamicGATEncoder, StaticGATEncoder, DynamicGATConvEncoder, AttentionDecoderChat
 from thesis_floor_halkes.utils.reward_logger import RewardLogger
 from thesis_floor_halkes.utils.simulate_dijkstra import simulate_dijkstra_path_cost
-
+from thesis_floor_halkes.utils.plot_graph import plot_graph
 
 data = GraphGenerator(
     num_nodes = 15,
@@ -30,16 +30,16 @@ dataset = RandomGraphPytorchDataset(
     max_prob = 0.7,
 )
 
-revisit_penalty = RevisitNodePenalty(name="Revisit Node Penalty", penalty = -1.0)
-penalty_per_step = PenaltyPerStep(name="Penalty Per Step", penalty = -0.1)
-goal_bonus = GoalBonus(name="Goal Bonus", bonus = 5.0)
+revisit_penalty = RevisitNodePenalty(name="Revisit Node Penalty", penalty = -50.0)
+penalty_per_step = PenaltyPerStep(name="Penalty Per Step", penalty = -10)
+goal_bonus = GoalBonus(name="Goal Bonus", bonus = 50.0)
 dead_end_penalty = DeadEndPenalty(name="Dead End Penalty", penalty = -5.0)
 waiting_time_penalty = WaitTimePenalty(name="Waiting Time Penalty")
 
 
 reward_modifier_calculator = RewardModifierCalculator(
         modifiers = [revisit_penalty, penalty_per_step, goal_bonus, waiting_time_penalty],
-        weights = [1.0, 1.0, 1.0, 1.0],
+        weights = [3.0, 1.0, 2.0, 1],
     )
 
 env = DynamicEnvironment(
@@ -51,8 +51,8 @@ env = DynamicEnvironment(
 
 hidden_size = 64
 input_dim = hidden_size * 2
-static_encoder = StaticGATEncoder(in_channels=1, hidden_size=hidden_size, edge_attr_dim=2)
-dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size)
+static_encoder = StaticGATEncoder(in_channels=1, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4)
+dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size, num_layers=4)
 decoder = AttentionDecoder(embed_dim=hidden_size * 2, num_heads=4)
 fixed_context = FixedContext(embed_dim=hidden_size * 2)
 baseline_input_dim = input_dim * 10
@@ -84,12 +84,12 @@ logger = RewardLogger(smooth_window = 20)
 torch.autograd.set_detect_anomaly(True)
 
 for graph in dataset:
-    for episode in range(3):
+    for episode in range(10):
         total_reward = 0 
         print('\n NEW GRAPH')
         state = env.reset()
         for step in range(20):
-            action, action_log_prob = agent.select_action(state)
+            action, action_log_prob, entropy = agent.select_action(state)
             embedding = agent.embeddings[-1]["final"]
             embedding_for_critic = embedding.detach().clone().requires_grad_()
             baseline_value = agent.baseline(embedding_for_critic, hidden_dim=128)
@@ -99,10 +99,16 @@ for graph in dataset:
             agent.store_action(action)
             agent.store_reward(reward)
             agent.store_baseline_value(baseline_value)
+            agent.store_entropy(entropy)
             total_reward += reward
             state = new_state
+            print(f"Starting node: {state.start_node}, Current node: {state.current_node}, End node: {state.end_node}")
+            print(f"Valid actions: {state.valid_actions}")
+            print(f"Step: {step}, Action: {action}, Reward: {reward}, Total Reward: {total_reward}")
+            
             if terminated or truncated:
                 break
+        print(agent.current_route)
 
         policy_loss, baseline_loss = agent.finish_episode()
         policy_optimizer.zero_grad()
@@ -123,5 +129,5 @@ for graph in dataset:
             logger.summary()
         
 logger.plot()
-
+plot_graph(state.dynamic_data)
 

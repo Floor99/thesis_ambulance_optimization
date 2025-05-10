@@ -71,7 +71,7 @@ class DynamicEnvironment(Environment):
         static_features = self.static_data
         
         # get valid actions
-        valid_actions = self.get_valid_actions(self.adjecency_matrix, current_node)
+        valid_actions = self.get_valid_actions(self.adjecency_matrix, current_node, visited_nodes)
         
         state = State(
             static_data=static_features,
@@ -133,11 +133,12 @@ class DynamicEnvironment(Environment):
         
         return new_state, reward, self.terminated, self.truncated, {}
 
-    def get_valid_actions(self, adj_matrix: dict[int, list[tuple[int, int]]], current_node:int) -> list[int]:
+    def get_valid_actions(self, adj_matrix: dict[int, list[tuple[int, int]]], current_node:int, visited_nodes) -> list[int]:
         """
         Return valid actions (neighbors) based on the adjacency matrix.
         """
-        return [v for v, _ in adj_matrix[current_node]]
+        # return [v for v, _ in adj_matrix[current_node]]
+        return [v for v, _ in adj_matrix[current_node] if v not in visited_nodes]
     
     def update_visited_nodes(self, prev_visited_nodes:list[int], action):
         return prev_visited_nodes + [action]

@@ -32,21 +32,22 @@ class AttentionDecoder(nn.Module):
                 node_embeddings, 
                 invalid_action_mask: torch.Tensor | None = None):    
         
-        n_nodes = node_embeddings.size(0)
         projected_query = self.project_context(context_vector).unsqueeze(0)  # [batch_size, embed_dim]
         query = projected_query.unsqueeze(0) # reshape to [seq_length, batch_size, embed_dim] 
         
         valid_indices = (~invalid_action_mask).nonzero(as_tuple=True)[0]  # (k,)
-        valid_keys = node_embeddings[valid_indices].unsqueeze(1)          # (k, 1, d_h)
+        valid_keys = node_embeddings[valid_indices].unsqueeze(1)        # (k, 1, d_h)
         
+        
+        #TODO: check if this is correct
         attn_output, attn_weights = self.attn(query, valid_keys, valid_keys, key_padding_mask=None) # [1, batch_size, n_nodes]
         
-        logits = attn_weights.squeeze(0).squeeze(0) # [n_nodes, ] 
+        logits = attn_weights.squeeze(0).squeeze(0).detach().clone().requires_grad_() # [n_nodes, ] 
         
         probs = F.softmax(logits, dim=-1)  
         dist = torch.distributions.Categorical(probs)
         sampled_idx = dist.sample()
         action = valid_indices[sampled_idx].item()
         log_prob = dist.log_prob(sampled_idx)
-        
-        return action, log_prob
+        entropy = dist.entropy()
+        return action, log_prob, entropy

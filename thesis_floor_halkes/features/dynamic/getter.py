@@ -29,9 +29,11 @@ class RandomDynamicFeatureGetter(DynamicFeatureGetter):
         """
         Generate random dynamic features.
         """
+        torch.manual_seed(1) # for reproducibility
+        torch.cuda.manual_seed(1) # for reproducibility
         num_nodes = environment.static_data.num_nodes
         traffic_lights = environment.static_data.x[:, traffic_light_idx].bool()
-        rand_bits = torch.randint(0, 2, (num_nodes,), dtype=torch.bool) # get random bits
+        rand_bits = torch.randint(0, 2, (num_nodes,), dtype=torch.bool,) # get random bits
         light_status = rand_bits & traffic_lights # if there is a traffic light, set status from random bits
         waiting_times = torch.rand(num_nodes) * max_wait # set random waiting time
         
