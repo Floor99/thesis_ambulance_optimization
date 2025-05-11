@@ -1,9 +1,11 @@
 import random
 
+import pandas as pd
 import torch
 from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.batch.graph_data_batch import GraphGenerator, RandomGraphPytorchDataset
-from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, RandomDynamicFeatureGetter
+from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, DynamicFeatureGetterDataFrame, RandomDynamicFeatureGetter
+from thesis_floor_halkes.features.static.getter import get_static_data_object
 from thesis_floor_halkes.model.decoder import AttentionDecoder, FixedContext
 from thesis_floor_halkes.model.encoders import StaticGATEncoder, DynamicGATEncoder
 from thesis_floor_halkes.penalties.calculator import RewardModifierCalculator
@@ -16,24 +18,32 @@ from thesis_floor_halkes.utils.reward_logger import RewardLogger
 from thesis_floor_halkes.utils.simulate_dijkstra import simulate_dijkstra_path_cost
 from thesis_floor_halkes.utils.plot_graph import plot_graph
 
-data = GraphGenerator(
-    num_nodes = 15,
-    edge_prob = 0.5,
-    max_wait = 10.0,
-).generate()
+import osmnx as ox 
+ox.settings.bidirectional_network_types = ['drive', 'walk', 'bike']
+# data = GraphGenerator(
+#     num_nodes = 15,
+#     edge_prob = 0.5,
+#     max_wait = 10.0,
+# ).generate()
 
-dataset = RandomGraphPytorchDataset(
-    num_graphs = 1,
-    min_nodes = 10,
-    max_nodes = 10,
-    min_prob = 0.3,
-    max_prob = 0.7,
-)
+# dataset = RandomGraphPytorchDataset(
+#     num_graphs = 1,
+#     min_nodes = 4059,
+#     max_nodes = 4059,
+#     min_prob = 0.3,
+#     max_prob = 0.7,
+# )
+
+# dataset = StaticDataSet(2)
+dataset = [get_static_data_object(time_series_df_path="data/processed/node_features.parquet",
+    edge_df_path="data/processed/edge_features_helmond.parquet",
+    dist=20,
+    seed=5)]
 
 revisit_penalty = RevisitNodePenalty(name="Revisit Node Penalty", penalty = -50.0)
 penalty_per_step = PenaltyPerStep(name="Penalty Per Step", penalty = -10)
 goal_bonus = GoalBonus(name="Goal Bonus", bonus = 50.0)
-dead_end_penalty = DeadEndPenalty(name="Dead End Penalty", penalty = -5.0)
+dead_end_penalty = DeadEndPenalty(name="Dead End Penalty", penalty = -500.0)
 waiting_time_penalty = WaitTimePenalty(name="Waiting Time Penalty")
 
 
@@ -42,20 +52,32 @@ reward_modifier_calculator = RewardModifierCalculator(
         weights = [3.0, 1.0, 2.0, 1],
     )
 
+# final_node_df = pd.read_parquet("data/processed/node_features.parquet")
+# final_edge_df = pd.read_parquet("data/processed/edge_features_helmond.parquet")
+# node_df = get_static_data_object(final_node_df, final_edge_df)
+
+# env = DynamicEnvironment(
+#     static_dataset = dataset,
+#     dynamic_feature_getter = RandomDynamicFeatureGetter(),
+#     reward_modifier_calculator = reward_modifier_calculator,
+#     max_steps = 30,
+# )
+
 env = DynamicEnvironment(
     static_dataset = dataset,
-    dynamic_feature_getter = RandomDynamicFeatureGetter(),
+    dynamic_feature_getter = DynamicFeatureGetterDataFrame(),
     reward_modifier_calculator = reward_modifier_calculator,
     max_steps = 30,
+    start_timestamp = '2024-01-31 08:30:00',
 )
 
 hidden_size = 64
 input_dim = hidden_size * 2
-static_encoder = StaticGATEncoder(in_channels=1, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4)
+static_encoder = StaticGATEncoder(in_channels=3, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4)
 dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size, num_layers=4)
 decoder = AttentionDecoder(embed_dim=hidden_size * 2, num_heads=4)
 fixed_context = FixedContext(embed_dim=hidden_size * 2)
-baseline_input_dim = input_dim * 10
+# baseline_input_dim = input_dim * 2
 # baseline = CriticBaseline(input_dim=baseline_input_dim)
 baseline = CriticBaseline()
 
@@ -84,11 +106,12 @@ logger = RewardLogger(smooth_window = 20)
 torch.autograd.set_detect_anomaly(True)
 
 for graph in dataset:
-    for episode in range(10):
+    for episode in range(1):
         total_reward = 0 
-        print('\n NEW GRAPH')
+        print('\n\n NEW GRAPH')
         state = env.reset()
         for step in range(20):
+            print(f"\n{step= }")
             action, action_log_prob, entropy = agent.select_action(state)
             embedding = agent.embeddings[-1]["final"]
             embedding_for_critic = embedding.detach().clone().requires_grad_()
@@ -102,13 +125,10 @@ for graph in dataset:
             agent.store_entropy(entropy)
             total_reward += reward
             state = new_state
-            print(f"Starting node: {state.start_node}, Current node: {state.current_node}, End node: {state.end_node}")
-            print(f"Valid actions: {state.valid_actions}")
-            print(f"Step: {step}, Action: {action}, Reward: {reward}, Total Reward: {total_reward}")
             
             if terminated or truncated:
+                print('terminated')
                 break
-        print(agent.current_route)
 
         policy_loss, baseline_loss = agent.finish_episode()
         policy_optimizer.zero_grad()

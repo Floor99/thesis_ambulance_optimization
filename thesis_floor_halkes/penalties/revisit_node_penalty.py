@@ -76,9 +76,11 @@ class DeadEndPenalty(Penalty):
         current_node = kwargs.get('current_node', int)
         environment = kwargs.get('environment', Environment)
         
-        no_moves = all(v in visited_nodes for v,_ in environment.adjacency_matrix[current_node])
-        if no_moves:
-            environment.states[-1].terminated = True 
+        # no_moves = all(v in visited_nodes for v,_ in environment.adjacency_matrix[current_node])
+        # if no_moves:
+        #     environment.states[-1].terminated = True
+        if environment.truncated:
+            print(f"Dead end reached at node {current_node}.") 
             return self.penalty
         return 0.0
     
@@ -105,7 +107,7 @@ class WaitTimePenalty(Penalty):
         action = kwargs.get('action', int)
         environment = kwargs.get('environment', Environment)
         
-        if environment.states[-1].static_data.x[:,0][action] and not environment.states[-1].dynamic_data.x[:,0][action]:
+        if environment.states[-1].static_data.x[:,2][action] and not environment.states[-1].dynamic_data.x[:,0][action]:
             return -(environment.states[-1].dynamic_data.x[:,1][action])
         return 0.0
 

@@ -7,7 +7,7 @@ def upsample_time_series(data, target_length):
     between consecutive points.
     
     """
-    
+    pass
 
 def sample_from_normal_distribution(mean, std_dev, n_samples, seed=42):
     if seed is not None:

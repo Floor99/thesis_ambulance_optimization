@@ -6,3 +6,6 @@ def build_adjecency_matrix(num_nodes:int, data: Data):
         adj_matrix[u].append((v, idx))
 
     return adj_matrix
+
+# adj_matrix = {i: [] for i in data.filtered_time_series_df.node_id.unique().tolist()}
+
