@@ -274,126 +274,213 @@ ox.settings.bidirectional_network_types = ['drive', 'walk', 'bike']
 #     def get(self, idx: int):
 #         return self.data_list[idx]
 
-import networkx as nx
-import pandas as pd 
+# import networkx as nx
+# import pandas as pd 
+# import numpy as np
+
+# def get_static_data_object(
+#     time_series_df_path: str,
+#     edge_df_path: str,
+#     dist: int = 500,
+#     start_node: int = None,
+#     end_node: int = None,
+#     seed: int = None,
+# ):
+#     # get full time series dataframe
+#     time_series = pd.read_parquet(time_series_df_path)
+    
+#     # get full edge dataframe
+#     # edge_df = pd.read_parquet(edge_df_path)
+    
+#     # select a random location from full timeseries dataframe
+#     location = time_series.sample(1, random_state=seed)
+#     lat = location.iloc[0]["lat"]
+#     lon = location.iloc[0]["lon"]
+#     lat = 51.4657
+#     lon = 5.661920
+    
+#     # create subgraph based on random location
+#     graph = create_osmnx_subgraph_from_coordinates(lat, lon, dist=dist)
+    
+#     edge_features = get_edge_features_from_osmnx(graph).reset_index()
+#     print(f"{edge_features= }")
+#     # filter time series dataframe based on nodes from subgraph
+#     subgraph_nodes_df = create_node_coordinates_dataframe_from_osmnx_graph(graph)
+#     print(f"{subgraph_nodes_df= }")
+#     filtered_time_series_df = time_series.merge(
+#         subgraph_nodes_df, left_on=["lat", "lon"], right_on=["lat", "lon"], how="inner"
+#     )
+#     print(f"{filtered_time_series_df= }")
+#     # subset edge dataframe based on nodes from subgraph
+#     # filtered_edge_df = edge_features[
+#     #     edge_features["u"].isin(filtered_time_series_df.node_id)
+#     #     & edge_features["v"].isin(filtered_time_series_df.node_id)
+#     # ]
+#     # print(filtered_edge_df)
+    
+#     # build edge index
+#     edge_index = torch.tensor(
+#         edge_features[["u", "v"]].values, dtype=torch.long
+#     ).t().contiguous()
+
+#     # build static edge attributes
+#     edge_attr = torch.tensor(
+#         edge_features[["length", "maxspeed"]].values, dtype=torch.float
+#     )
+
+#     # build static node features
+#     node_features = filtered_time_series_df.drop_duplicates(subset=["node_id_y"]).copy()
+#     node_features = torch.tensor(
+#         node_features[["lat", "lon", "has_light"]].values, dtype=torch.float
+#     )
+#     print(f"{node_features= }")
+    
+#     # build static data object
+#     static_data = Data(
+#         x=node_features,
+#         edge_index=edge_index,
+#         edge_attr=edge_attr,
+#     )
+    
+#     # add filtered time series dataframe to static data object
+#     static_data.filtered_time_series_df = filtered_time_series_df
+    
+#     # add start and end node to static data object
+#     if start_node is None:
+#         # randomly select start node
+#         start_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
+#     if end_node is None:
+#         # randomly select end node
+#         end_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
+#         while start_node == end_node:
+#             end_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
+#     static_data.start_node = start_node
+#     static_data.end_node = end_node
+
+#     # add filtered edge dataframe to static data object
+#     static_data.filtered_edge_df = edge_features
+    
+#     return static_data
+
+
+# def create_osmnx_subgraph_from_coordinates(lat,lon, dist):
+#     G = ox.graph_from_point((lat, lon), dist=dist, network_type='drive', simplify=True, retain_all=False, truncate_by_edge=True)
+#     # G = G.to_undirected()
+#     # G = nx.convert_node_labels_to_integers(G, ordering='sorted', first_label=0)
+    
+#     return G
+
+# def create_node_coordinates_dataframe_from_osmnx_graph(G):
+#     G = nx.convert_node_labels_to_integers(G, ordering='sorted', first_label=0)
+#     nodes, _ = ox.graph_to_gdfs(G)
+    
+#     nodes = nodes[['y', 'x']].reset_index(names='node_id')
+#     nodes = nodes.rename(columns={'y': 'lat', 'x': 'lon'})
+#     return nodes
+
+# def clean_numeric(val, default=50.0):
+#     if isinstance(val, list):
+#         val = val[0]  # If it's a list, pick the first value
+#     try:
+#         return float(val)
+#     except (ValueError, TypeError):
+#         return default 
+
+# def get_edge_features_from_osmnx(G):
+#     G = nx.convert_node_labels_to_integers(G, ordering='sorted', first_label=0)    
+#     _, edges = ox.graph_to_gdfs(G)
+    
+#     edges = edges[['maxspeed', 'length']]
+#     edges['maxspeed'] = edges['maxspeed'].apply(lambda x: clean_numeric(x, default=50.0))
+#     edges['length'] = edges['length'].apply(lambda x: clean_numeric(x, default=30.0))  # 30m as a reasonable default)
+#     edges['maxspeed'] = edges['maxspeed'].fillna(50.0)
+#     edges['length'] = edges['length'].fillna(30.0)
+    
+#     return edges
+
+import pandas as pd
+import torch
 import numpy as np
+import osmnx as ox
+import networkx as nx
+from torch_geometric.data import Data
+
+from thesis_floor_halkes.features.graph.graph_generator import create_osmnx_sub_graph_only_inside_helmond, get_edge_features_subgraph, get_node_features_subgraph
+ox.settings.bidirectional_network_types = ['drive', 'walk', 'bike']
 
 def get_static_data_object(
     time_series_df_path: str,
-    edge_df_path: str,
     dist: int = 500,
     start_node: int = None,
     end_node: int = None,
     seed: int = None,
 ):
-    # get full time series dataframe
+        # get full time series dataframe
     time_series = pd.read_parquet(time_series_df_path)
     
-    # get full edge dataframe
-    # edge_df = pd.read_parquet(edge_df_path)
-    
-    # select a random location from full timeseries dataframe
+        # select a random location from full timeseries dataframe
     location = time_series.sample(1, random_state=seed)
     lat = location.iloc[0]["lat"]
     lon = location.iloc[0]["lon"]
-    lat = 51.4657
-    lon = 5.661920
+    # lat = 51.473609
+    # lon = 5.738671
     
-    # create subgraph based on random location
-    graph = create_osmnx_subgraph_from_coordinates(lat, lon, dist=dist)
+        # create subgraph based on random location inside Helmond
+    graph, _ = create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, time_series)
     
-    edge_features = get_edge_features_from_osmnx(graph).reset_index()
-    print(f"{edge_features= }")
-    # filter time series dataframe based on nodes from subgraph
-    subgraph_nodes_df = create_node_coordinates_dataframe_from_osmnx_graph(graph)
-    print(f"{subgraph_nodes_df= }")
+        # get node features from subgraph with sorted node ids
+    subgraph_nodes_df = get_node_features_subgraph(graph)
+    
+        # filter time series dataframe based on nodes from subgraph
     filtered_time_series_df = time_series.merge(
         subgraph_nodes_df, left_on=["lat", "lon"], right_on=["lat", "lon"], how="inner"
     )
-    print(f"{filtered_time_series_df= }")
-    # subset edge dataframe based on nodes from subgraph
-    # filtered_edge_df = edge_features[
-    #     edge_features["u"].isin(filtered_time_series_df.node_id)
-    #     & edge_features["v"].isin(filtered_time_series_df.node_id)
-    # ]
-    # print(filtered_edge_df)
+
+        # get edge features from subgraph with sorted node ids
+    edge_features = get_edge_features_subgraph(graph).reset_index()
     
-    # build edge index
+        # build edge index
     edge_index = torch.tensor(
         edge_features[["u", "v"]].values, dtype=torch.long
     ).t().contiguous()
 
-    # build static edge attributes
+        # build static edge attributes
     edge_attr = torch.tensor(
         edge_features[["length", "maxspeed"]].values, dtype=torch.float
     )
+    print(f"{edge_attr= }")
 
-    # build static node features
+        # build static node features based on node_id_y (sorted)
     node_features = filtered_time_series_df.drop_duplicates(subset=["node_id_y"]).copy()
     node_features = torch.tensor(
         node_features[["lat", "lon", "has_light"]].values, dtype=torch.float
     )
-    print(f"{node_features= }")
     
-    # build static data object
+        # build static data object
     static_data = Data(
         x=node_features,
         edge_index=edge_index,
         edge_attr=edge_attr,
     )
     
-    # add filtered time series dataframe to static data object
+        # add filtered time series dataframe to static data object
     static_data.filtered_time_series_df = filtered_time_series_df
     
-    # add start and end node to static data object
+        # add start and end node to static data object
     if start_node is None:
-        # randomly select start node
         start_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
     if end_node is None:
-        # randomly select end node
         end_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
         while start_node == end_node:
             end_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
     static_data.start_node = start_node
     static_data.end_node = end_node
-
-    # add filtered edge dataframe to static data object
-    static_data.filtered_edge_df = edge_features
     
     return static_data
 
-
-def create_osmnx_subgraph_from_coordinates(lat,lon, dist):
-    G = ox.graph_from_point((lat, lon), dist=dist, network_type='drive', simplify=True, retain_all=False, truncate_by_edge=True)
-    # G = G.to_undirected()
-    # G = nx.convert_node_labels_to_integers(G, ordering='sorted', first_label=0)
-    
-    return G
-
-def create_node_coordinates_dataframe_from_osmnx_graph(G):
-    G = nx.convert_node_labels_to_integers(G, ordering='sorted', first_label=0)
-    nodes, _ = ox.graph_to_gdfs(G)
-    
-    nodes = nodes[['y', 'x']].reset_index(names='node_id')
-    nodes = nodes.rename(columns={'y': 'lat', 'x': 'lon'})
-    return nodes
-
-def clean_numeric(val, default=50.0):
-    if isinstance(val, list):
-        val = val[0]  # If it's a list, pick the first value
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return default 
-
-def get_edge_features_from_osmnx(G):
-    G = nx.convert_node_labels_to_integers(G, ordering='sorted', first_label=0)    
-    _, edges = ox.graph_to_gdfs(G)
-    
-    edges = edges[['maxspeed', 'length']]
-    edges['maxspeed'] = edges['maxspeed'].apply(lambda x: clean_numeric(x, default=50.0))
-    edges['length'] = edges['length'].apply(lambda x: clean_numeric(x, default=30.0))  # 30m as a reasonable default)
-    edges['maxspeed'] = edges['maxspeed'].fillna(50.0)
-    edges['length'] = edges['length'].fillna(30.0)
-    
-    return edges
+if __name__ == "__main__":
+    get_static_data_object(
+        time_series_df_path="data/processed/node_features.parquet",
+        dist=1000,
+        seed=5,
+    )

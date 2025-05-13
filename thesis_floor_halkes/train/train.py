@@ -9,7 +9,7 @@ from thesis_floor_halkes.features.static.getter import get_static_data_object
 from thesis_floor_halkes.model.decoder import AttentionDecoder, FixedContext
 from thesis_floor_halkes.model.encoders import StaticGATEncoder, DynamicGATEncoder
 from thesis_floor_halkes.penalties.calculator import RewardModifierCalculator
-from thesis_floor_halkes.penalties.revisit_node_penalty import DeadEndPenalty, GoalBonus, PenaltyPerStep, RevisitNodePenalty, WaitTimePenalty
+from thesis_floor_halkes.penalties.revisit_node_penalty import AggregatedStepPenalty, CloserToGoalBonus, DeadEndPenalty, GoalBonus, HigherSpeedBonus, PenaltyPerStep, RevisitNodePenalty, WaitTimePenalty
 from thesis_floor_halkes.baselines.critic_network import CriticBaseline
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
@@ -36,20 +36,37 @@ ox.settings.bidirectional_network_types = ['drive', 'walk', 'bike']
 
 # dataset = StaticDataSet(2)
 dataset = [get_static_data_object(time_series_df_path="data/processed/node_features.parquet",
-    edge_df_path="data/processed/edge_features_helmond.parquet",
-    dist=20,
+    dist=1000,
     seed=5)]
 
 revisit_penalty = RevisitNodePenalty(name="Revisit Node Penalty", penalty = -50.0)
 penalty_per_step = PenaltyPerStep(name="Penalty Per Step", penalty = -10)
 goal_bonus = GoalBonus(name="Goal Bonus", bonus = 50.0)
-dead_end_penalty = DeadEndPenalty(name="Dead End Penalty", penalty = -500.0)
+dead_end_penalty = DeadEndPenalty(name="Dead End Penalty", penalty = -50.0)
 waiting_time_penalty = WaitTimePenalty(name="Waiting Time Penalty")
-
+higher_speed_bonus = HigherSpeedBonus(name="Higher Speed Bonus", bonus = 10.0)
+aggregated_step_penalty = AggregatedStepPenalty(name="Aggregated Step Penalty", penalty = -1.0)
+closer_to_goal_bonus = CloserToGoalBonus(name="Closer To Goal Bonus", bonus = 2.0)
 
 reward_modifier_calculator = RewardModifierCalculator(
-        modifiers = [revisit_penalty, penalty_per_step, goal_bonus, waiting_time_penalty],
-        weights = [3.0, 1.0, 2.0, 1],
+        modifiers = [revisit_penalty, 
+                     penalty_per_step, 
+                     goal_bonus, 
+                     waiting_time_penalty, 
+                     dead_end_penalty, 
+                     higher_speed_bonus,
+                     closer_to_goal_bonus,
+                    #  aggregated_step_penalty,
+                     ],
+        weights = [3.0, 
+                   1.0, 
+                   2.0, 
+                   1.0, 
+                   1.0, 
+                   1.0,
+                   1.0,
+                #    1.0
+                   ],
     )
 
 # final_node_df = pd.read_parquet("data/processed/node_features.parquet")
@@ -77,8 +94,6 @@ static_encoder = StaticGATEncoder(in_channels=3, hidden_size=hidden_size, edge_a
 dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size, num_layers=4)
 decoder = AttentionDecoder(embed_dim=hidden_size * 2, num_heads=4)
 fixed_context = FixedContext(embed_dim=hidden_size * 2)
-# baseline_input_dim = input_dim * 2
-# baseline = CriticBaseline(input_dim=baseline_input_dim)
 baseline = CriticBaseline()
 
 agent = DynamicAgent(
@@ -110,7 +125,7 @@ for graph in dataset:
         total_reward = 0 
         print('\n\n NEW GRAPH')
         state = env.reset()
-        for step in range(20):
+        for step in range(35):
             print(f"\n{step= }")
             action, action_log_prob, entropy = agent.select_action(state)
             embedding = agent.embeddings[-1]["final"]

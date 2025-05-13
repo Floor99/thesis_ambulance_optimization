@@ -5,6 +5,7 @@ from torch_geometric.data import Data, Dataset
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, RandomDynamicFeatureGetter
 from thesis_floor_halkes.features.static.getter import get_static_data_object
 from thesis_floor_halkes.penalties.calculator import PenaltyCalculator, RewardModifierCalculator
+from thesis_floor_halkes.penalties.revisit_node_penalty import AggregatedStepPenalty
 from thesis_floor_halkes.state import State
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.utils.travel_time import calculate_edge_travel_time
@@ -39,12 +40,13 @@ class DynamicEnvironment(Environment):
             self.static_data = self.static_dataset[graph_idx]
         else:
             raise ValueError("Dataset must be a list of Data objects or a Dataset object.")
-
+        print(f"{self.static_data= }")
+        print(f"{self.static_data.edge_attr= }")
         self.steps_taken = 0
         self.terminated = False
         self.truncated = False
         self.time_stamps = sorted(self.static_data.filtered_time_series_df['timestamp'].unique())
-        print(f"{self.static_data.edge_index.t()}")
+        # print(f"{self.static_data.edge_index.t()}")
         self.adjecency_matrix = build_adjecency_matrix(self.static_data.num_nodes, self.static_data)
         
         # store the user’s desired start‐time
@@ -63,7 +65,7 @@ class DynamicEnvironment(Environment):
         
         self.states = []
         init_state = self._get_state()
-        print(f"{init_state.static_data.edge_index.t()= }")
+        # print(f"{init_state.static_data.edge_index.t()= }")
         self.states.append(init_state)
         
         return init_state
@@ -92,21 +94,18 @@ class DynamicEnvironment(Environment):
                                                                             time_step = self.current_time_idx,
                                                                             sub_node_df = sub_node_df)
         
-        # dynamic_features = self.dynamic_feature_getter.get_dynamic_features(environment=self, 
-        #                                                                     traffic_light_idx=0, 
-        #                                                                     current_node = current_node, 
-        #                                                                     visited_nodes = visited_nodes, 
-        #                                                                     max_wait = 10.0)
         # get static features
         static_features = self.static_data
-        print(f"{static_features.x= }")
-        print(f"{dynamic_features.x= }")
+        # print(f"{static_features= }")
+        # print(f"{static_features.edge_attrs= }")
+        # print(f"{dynamic_features.x= }")
+        
         # get valid actions
         valid_actions = self.get_valid_actions(self.adjecency_matrix, current_node, visited_nodes)
-        print(f"{self.static_data.start_node= }, {self.static_data.end_node= }")
-        print(f"{current_node= }")
-        print(f"{visited_nodes= }")
-        print(f"{valid_actions= }")
+        # print(f"{self.static_data.start_node= }, {self.static_data.end_node= }")
+        # print(f"{current_node= }")
+        # print(f"{visited_nodes= }")
+        # print(f"{valid_actions= }")
         
         state = State(
             static_data=static_features,
@@ -133,8 +132,6 @@ class DynamicEnvironment(Environment):
         self.steps_taken += 1
         self.current_time_idx += 1      # bounds by end timestamp toevoegen!
         
-        print(f"{action= }")
-        
         new_state = self._get_state(action)
         
         self.states.append(new_state)
@@ -152,25 +149,30 @@ class DynamicEnvironment(Environment):
             speed_feature_idx=1
         )
         
-        if new_state.valid_actions == []:
-            self.truncated = True
 
         # Compute the reward 
         penalty = self.reward_modifier_calculator.calculate_total(visited_nodes = old_state.visited_nodes,
                                                             action= action,
                                                             current_node= new_state.current_node,
                                                             end_node= new_state.end_node,
+                                                            valid_actions = new_state.valid_actions,
                                                             environment = self)
 
-        reward = - travel_time_edge + penalty
-        print(f"{penalty= }")        
+        reward = - travel_time_edge + penalty       
         
+        if new_state.valid_actions == []:
+            self.truncated = True
             
         if new_state.current_node == new_state.end_node:
             self.terminated = True
 
         if self.steps_taken >= self.max_steps:
             self.truncated = True
+            
+        if self.terminated or self.truncated:
+            agg = AggregatedStepPenalty(name="aggregated_step_penalty", penalty=-3.0)
+            agg_value = agg(environment = self)
+            reward += agg_value
         
         return new_state, reward, self.terminated, self.truncated, {}
 

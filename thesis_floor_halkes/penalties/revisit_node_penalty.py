@@ -3,6 +3,7 @@ from typing import List
 import torch
 from thesis_floor_halkes.environment.base import Environment
 from thesis_floor_halkes.penalties.base import Penalty, Bonus
+from thesis_floor_halkes.penalties.penalty_utils import haversine
 
 
 class RevisitNodePenalty(Penalty):
@@ -14,16 +15,7 @@ class RevisitNodePenalty(Penalty):
         super().__init__(name, penalty)
         
     def __call__(self, **kwargs) -> float:
-        """
-        Calculate the revisit node penalty.
 
-        Args:
-            environment: The environment to calculate the penalty for.
-            action: The action taken in the environment.
-
-        Returns:
-            The calculated penalty.
-        """
         visited_nodes = kwargs.get('visited_nodes', List[int])
         action = kwargs.get('action', int)
         
@@ -31,7 +23,7 @@ class RevisitNodePenalty(Penalty):
             return self.penalty
         return 0.0
 
-class PenaltyPerStep(Penalty):
+class PenaltyPerStep(Penalty):          # augment it with a travel time / distance based cost
     """
     Penalty for each step taken in the environment.
     """
@@ -40,17 +32,24 @@ class PenaltyPerStep(Penalty):
         super().__init__(name, penalty)
 
     def __call__(self, **kwargs) -> float:
-        """
-        Calculate the penalty per step.
-
-        Args:
-            environment: The environment to calculate the penalty for.
-            action: The action taken in the environment.
-
-        Returns:
-            The calculated penalty.
-        """
         return self.penalty
+
+
+class AggregatedStepPenalty(Penalty):
+    """
+    Penalty for each step taken in the environment, aggregated over all steps.
+    """
+
+    def __init__(self, name: str, penalty:float):
+        super().__init__(name, penalty)
+    
+    def __call__(self, **kwargs) -> float:
+        environment = kwargs.get('environment', Environment)
+        
+        step_count = environment.steps_taken
+        
+        return step_count * self.penalty
+    
 
 
 class DeadEndPenalty(Penalty):
@@ -61,26 +60,10 @@ class DeadEndPenalty(Penalty):
     def __init__(self, name: str, penalty:float):
         super().__init__(name, penalty)
 
-    def __call__(self, environment:Environment, **kwargs) -> float:
-        """
-        Calculate the dead end penalty.
-
-        Args:
-            environment: The environment to calculate the penalty for.
-            action: The action taken in the environment.
-
-        Returns:
-            The calculated penalty.
-        """
-        visited_nodes = kwargs.get('visited_nodes', List[int])
-        current_node = kwargs.get('current_node', int)
-        environment = kwargs.get('environment', Environment)
+    def __call__(self, **kwargs) -> float:
+        valid_actions = kwargs.get('valid_actions', List[int])
         
-        # no_moves = all(v in visited_nodes for v,_ in environment.adjacency_matrix[current_node])
-        # if no_moves:
-        #     environment.states[-1].terminated = True
-        if environment.truncated:
-            print(f"Dead end reached at node {current_node}.") 
+        if valid_actions == []:
             return self.penalty
         return 0.0
     
@@ -92,18 +75,8 @@ class WaitTimePenalty(Penalty):
     def __init__(self, name: str, penalty:float=None):
         super().__init__(name, penalty)
         
-
     def __call__(self, **kwargs) -> float:
-        """
-        Calculate the wait time penalty.
 
-        Args:
-            environment: The environment to calculate the penalty for.
-            action: The action taken in the environment.
-
-        Returns:
-            The calculated penalty.
-        """
         action = kwargs.get('action', int)
         environment = kwargs.get('environment', Environment)
         
@@ -121,16 +94,7 @@ class GoalBonus(Bonus):
         super().__init__(name, bonus)
 
     def __call__(self, **kwargs) -> float:
-        """
-        Calculate the goal bonus.
 
-        Args:
-            environment: The environment to calculate the bonus for.
-            action: The action taken in the environment.
-
-        Returns:
-            The calculated bonus.
-        """
         current_node = kwargs.get('current_node', int)
         end_node = kwargs.get('end_node', int)
         
@@ -141,40 +105,40 @@ class GoalBonus(Bonus):
 class CloserToGoalBonus(Bonus):
     """
     Bonus for every step getting closer to the goal in the environment, based on Euclidean distance.
-    """
-    def __init__(self, name: str, bonus:float, data, end_node, scaled:bool = False
-                 ):
-        super().__init__(name, bonus)
-        self.pos = data.pos
-        self.goal_pos = data.pos[end_node]
-        self.scaled = scaled
-
-    def __call__(self, **kwargs) -> float:
-        """
-        Calculate the closer to goal bonus, based on Euclidean distance to goal each step.
-
-        Args:
-            environment: The environment to calculate the bonus for.
-            action: The action taken in the environment.
-
-        Returns:
-            The calculated bonus.
-        """
-        prev_idx = kwargs.get('prev_node', int)
-        curr_idx = kwargs.get('current_node', int)
-        
-        prev_pos = self.pos[prev_idx]
-        curr_pos = self.pos[curr_idx]
-        
-        d_prev = torch.dist(prev_pos, self.goal_pos)
-        dcurr = torch.dist(curr_pos, self.goal_pos)
-        delta = (d_prev - dcurr).item()
-        
-        if delta <= 0:
-            return 0.0
-
-        return self.bonus * (delta if self.scaled else 1.0)
     
+    Penalty when moving away from the goal.
+    """
+    def __init__(self, name: str, bonus:float,discount_factor:float=0.99):
+        super().__init__(name, bonus,)
+        self.discount_factor = discount_factor
+    
+    def __call__(self, **kwargs) -> float:
+        environment = kwargs.get('environment', Environment)
+        end_node = kwargs.get('end_node', int)
+        
+        if len(environment.states) >= 2:
+            previous_node = environment.states[-2].current_node
+        else: 
+            previous_node = environment.states[-1].current_node
+        current_node = environment.states[-1].current_node
+        
+        x_static = environment.states[-1].static_data.x
+        lon_prev = x_static[:, 1][previous_node].item()
+        lat_prev = x_static[:, 0][previous_node].item()
+        lon_curr = x_static[:, 1][current_node].item()
+        lat_curr = x_static[:, 0][current_node].item()
+        lon_goal = x_static[:, 1][end_node].item()
+        lat_goal = x_static[:, 0][end_node].item()
+        
+        distance_prev = haversine((lat_prev, lon_prev), (lat_goal, lon_goal))
+        distance_curr = haversine((lat_curr, lon_curr), (lat_goal, lon_goal))
+        
+            # shaping > 0.0 getting closer, < 0.0 getting further away
+        shaping = distance_prev - self.discount_factor * (distance_curr) 
+                
+        return shaping * self.bonus
+        
+        
 class HigherSpeedBonus(Bonus):
     """
     Bonus for roads with a higher speed limit in the environment.
@@ -182,7 +146,13 @@ class HigherSpeedBonus(Bonus):
     def __init__(self, name, bonus):
         super().__init__(name, bonus)
         
-        pass
+    def __call__(self, **kwargs) -> float:
+        environment = kwargs.get('environment', Environment)
+        action = kwargs.get('action', int)
+        
+        if environment.states[-1].static_data.edge_attr[:, 1][action].item() > 50.0:   
+            return self.bonus
+        return 0.0
     
 class MoreLanesBonus(Bonus):
     """
@@ -192,4 +162,14 @@ class MoreLanesBonus(Bonus):
         super().__init__(name, bonus)
         
         pass
-    
+
+class MainRoadBonus(Bonus):
+    """
+    Bonus for main roads in the environment.
+    """
+    def __init__(self, name, bonus):
+        super().__init__(name, bonus)
+        
+        pass
+
+

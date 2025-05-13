@@ -5,7 +5,6 @@ import torch
 from torch_geometric.data import Data
 import numpy as np
 import pandas as pd
-ox.settings.bidirectional_network_types = ['drive', 'walk', 'bike']
 
 timeseries_df = pd.read_parquet("data/processed/node_features.parquet")
 
@@ -76,6 +75,7 @@ def get_node_features_subgraph(G_sub):
     nodes, _ = ox.graph_to_gdfs(G_sub)
     nodes = nodes[['y', 'x']].reset_index(names='node_id')
     nodes = nodes.rename(columns={'y': 'lat', 'x': 'lon'})
+    print(f"{nodes= }")
     return nodes
 
 def clean_numeric(val, default=50.0):
@@ -95,14 +95,15 @@ def get_edge_features_subgraph(G_sub):
     edges['length'] = edges['length'].apply(lambda x: clean_numeric(x, default=30.0))  # 30m as a reasonable default)
     edges['maxspeed'] = edges['maxspeed'].fillna(50.0)
     edges['length'] = edges['length'].fillna(30.0)
+    print(f"{edges= }")
     return edges
 
 
 
 
-if __name__ == "__main__":
-    G_sub, G_pt = create_osmnx_sub_graph_only_inside_helmond(51.473609, 5.738671, 1000, timeseries_df)
-    print(f"{G_sub= }")
 
-    get_node_features_subgraph(G_sub)
-    get_edge_features_subgraph(G_sub)
+G_sub, G_pt = create_osmnx_sub_graph_only_inside_helmond(51.473609, 5.738671, 1000, timeseries_df)
+print(f"{G_sub= }")
+
+get_node_features_subgraph(G_sub)
+get_edge_features_subgraph(G_sub)

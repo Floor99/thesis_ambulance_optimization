@@ -97,7 +97,7 @@ class DynamicFeatureGetterDataFrame(DynamicFeatureGetter):
         df_t = sub_node_df[sub_node_df["timestamp"] == t].sort_values("node_id_y")
 
         wait_times = torch.tensor(df_t["wait_time"].values, dtype=torch.float)
-        print(f"wait_times: {wait_times= }")
+        # print(f"wait_times: {wait_times= }")
         num_nodes = environment.static_data.num_nodes
 
         has_light = environment.static_data.x[:, traffic_light_idx].bool()
