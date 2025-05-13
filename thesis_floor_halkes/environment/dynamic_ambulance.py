@@ -103,9 +103,9 @@ class DynamicEnvironment(Environment):
         # get valid actions
         valid_actions = self.get_valid_actions(self.adjecency_matrix, current_node, visited_nodes)
         # print(f"{self.static_data.start_node= }, {self.static_data.end_node= }")
-        # print(f"{current_node= }")
-        # print(f"{visited_nodes= }")
-        # print(f"{valid_actions= }")
+        print(f"{current_node= }")
+        print(f"{visited_nodes= }")
+        print(f"{valid_actions= }")
         
         state = State(
             static_data=static_features,

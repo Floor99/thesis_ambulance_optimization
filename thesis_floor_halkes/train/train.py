@@ -46,7 +46,7 @@ dead_end_penalty = DeadEndPenalty(name="Dead End Penalty", penalty = -50.0)
 waiting_time_penalty = WaitTimePenalty(name="Waiting Time Penalty")
 higher_speed_bonus = HigherSpeedBonus(name="Higher Speed Bonus", bonus = 10.0)
 aggregated_step_penalty = AggregatedStepPenalty(name="Aggregated Step Penalty", penalty = -1.0)
-closer_to_goal_bonus = CloserToGoalBonus(name="Closer To Goal Bonus", bonus = 2.0)
+closer_to_goal_bonus = CloserToGoalBonus(name="Closer To Goal Bonus", bonus = 1.0)
 
 reward_modifier_calculator = RewardModifierCalculator(
         modifiers = [revisit_penalty, 
@@ -69,16 +69,6 @@ reward_modifier_calculator = RewardModifierCalculator(
                    ],
     )
 
-# final_node_df = pd.read_parquet("data/processed/node_features.parquet")
-# final_edge_df = pd.read_parquet("data/processed/edge_features_helmond.parquet")
-# node_df = get_static_data_object(final_node_df, final_edge_df)
-
-# env = DynamicEnvironment(
-#     static_dataset = dataset,
-#     dynamic_feature_getter = RandomDynamicFeatureGetter(),
-#     reward_modifier_calculator = reward_modifier_calculator,
-#     max_steps = 30,
-# )
 
 env = DynamicEnvironment(
     static_dataset = dataset,
@@ -90,7 +80,7 @@ env = DynamicEnvironment(
 
 hidden_size = 64
 input_dim = hidden_size * 2
-static_encoder = StaticGATEncoder(in_channels=3, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4)
+static_encoder = StaticGATEncoder(in_channels=4, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4)
 dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size, num_layers=4)
 decoder = AttentionDecoder(embed_dim=hidden_size * 2, num_heads=4)
 fixed_context = FixedContext(embed_dim=hidden_size * 2)

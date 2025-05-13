@@ -1,9 +1,9 @@
 from typing import List
-
 import torch
+
 from thesis_floor_halkes.environment.base import Environment
 from thesis_floor_halkes.penalties.base import Penalty, Bonus
-from thesis_floor_halkes.penalties.penalty_utils import haversine
+from thesis_floor_halkes.utils.haversine import haversine
 
 
 class RevisitNodePenalty(Penalty):
@@ -51,7 +51,6 @@ class AggregatedStepPenalty(Penalty):
         return step_count * self.penalty
     
 
-
 class DeadEndPenalty(Penalty):
     """
     Penalty for reaching a dead end in the environment.
@@ -66,7 +65,8 @@ class DeadEndPenalty(Penalty):
         if valid_actions == []:
             return self.penalty
         return 0.0
-    
+
+
 class WaitTimePenalty(Penalty):
     """
     Penalty for waiting at a traffic light in the environment.
@@ -101,7 +101,8 @@ class GoalBonus(Bonus):
         if current_node == end_node:
             return self.bonus
         return 0.0
-    
+
+
 class CloserToGoalBonus(Bonus):
     """
     Bonus for every step getting closer to the goal in the environment, based on Euclidean distance.
@@ -114,7 +115,6 @@ class CloserToGoalBonus(Bonus):
     
     def __call__(self, **kwargs) -> float:
         environment = kwargs.get('environment', Environment)
-        end_node = kwargs.get('end_node', int)
         
         if len(environment.states) >= 2:
             previous_node = environment.states[-2].current_node
@@ -122,18 +122,10 @@ class CloserToGoalBonus(Bonus):
             previous_node = environment.states[-1].current_node
         current_node = environment.states[-1].current_node
         
-        x_static = environment.states[-1].static_data.x
-        lon_prev = x_static[:, 1][previous_node].item()
-        lat_prev = x_static[:, 0][previous_node].item()
-        lon_curr = x_static[:, 1][current_node].item()
-        lat_curr = x_static[:, 0][current_node].item()
-        lon_goal = x_static[:, 1][end_node].item()
-        lat_goal = x_static[:, 0][end_node].item()
-        
-        distance_prev = haversine((lat_prev, lon_prev), (lat_goal, lon_goal))
-        distance_curr = haversine((lat_curr, lon_curr), (lat_goal, lon_goal))
-        
-            # shaping > 0.0 getting closer, < 0.0 getting further away
+        dist_to_goal = environment.states[-1].static_data.x[:,3]
+        distance_prev = dist_to_goal[previous_node].item()
+        distance_curr = dist_to_goal[current_node].item()
+
         shaping = distance_prev - self.discount_factor * (distance_curr) 
                 
         return shaping * self.bonus
@@ -154,6 +146,7 @@ class HigherSpeedBonus(Bonus):
             return self.bonus
         return 0.0
     
+
 class MoreLanesBonus(Bonus):
     """
     Bonus for roads with more lanes in the environment.
@@ -162,6 +155,7 @@ class MoreLanesBonus(Bonus):
         super().__init__(name, bonus)
         
         pass
+
 
 class MainRoadBonus(Bonus):
     """

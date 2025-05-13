@@ -14,5 +14,5 @@ def haversine(coord1: tuple[float,float],
     a = (math.sin(Δφ/2)**2
          + math.cos(φ1) * math.cos(φ2) * math.sin(Δλ/2)**2)
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    R = 6371.0  # Earth radius in km
+    R = 6_371_000.0  # Earth radius in m
     return R * c

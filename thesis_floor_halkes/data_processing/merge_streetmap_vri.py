@@ -138,7 +138,10 @@ df_final = (
        how="left"
     )
     .rename(columns={"wait_time_all_cycles_average":"wait_time"})
-    .assign(wait_time=lambda d: d["wait_time"].fillna(0))
+    # .assign(wait_time=lambda d: d["wait_time"].fillna(0))
+    .assign(peer_avg=lambda d: d.groupby("timestamp")["wait_time"].transform("mean"),
+            wait_time=lambda d: d["wait_time"].fillna(d["peer_avg"]))
+    .drop(columns="peer_avg")
     .sort_values(["node_id","timestamp"])
     .reset_index(drop=True)
 )
@@ -150,4 +153,4 @@ print(df_final.loc[df_final['node_id']==1])
 print(df_final.loc[df_final['node_id']==3919])
 print("nodes with light:", mask.sum(), "/", len(gdf_nodes))
 
-df_final.to_parquet("data/processed/node_features.parquet", index=False)
+df_final.to_parquet("data/processed/node_features_filled_nan_average.parquet", index=False)

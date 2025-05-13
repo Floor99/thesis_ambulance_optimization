@@ -3,6 +3,8 @@ import torch
 from torch_geometric.data import Data
 import osmnx as ox
 
+from thesis_floor_halkes.utils.haversine import haversine
+
 ox.settings.bidirectional_network_types = ['drive', 'walk', 'bike']
 
 # class StaticFeatureGetter(ABC):
@@ -405,7 +407,7 @@ import osmnx as ox
 import networkx as nx
 from torch_geometric.data import Data
 
-from thesis_floor_halkes.features.graph.graph_generator import create_osmnx_sub_graph_only_inside_helmond, get_edge_features_subgraph, get_node_features_subgraph
+from thesis_floor_halkes.features.graph.graph_generator import create_osmnx_sub_graph_only_inside_helmond, get_edge_features_subgraph, get_node_features_subgraph, plot_sub_graph_in_and_out_nodes_helmond
 ox.settings.bidirectional_network_types = ['drive', 'walk', 'bike']
 
 def get_static_data_object(
@@ -426,16 +428,34 @@ def get_static_data_object(
     # lon = 5.738671
     
         # create subgraph based on random location inside Helmond
-    graph, _ = create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, time_series)
+    graph, G_pt = create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, time_series)
     
         # get node features from subgraph with sorted node ids
     subgraph_nodes_df = get_node_features_subgraph(graph)
+    
+        # add start and end node to static data object
+    if start_node is None:
+        start_node = np.random.choice(subgraph_nodes_df.node_id.values).item()
+    if end_node is None:
+        end_node = np.random.choice(subgraph_nodes_df.node_id.values).item()
+        while start_node == end_node:
+            end_node = np.random.choice(subgraph_nodes_df.node_id.values).item()
+    subgraph_nodes_df["start_node"] = start_node
+    subgraph_nodes_df["end_node"] = end_node
+
+        # compute distance-to-goal for each node
+    goal_coords = subgraph_nodes_df.loc[subgraph_nodes_df["node_id"] == end_node, ["lat", "lon"]].iloc[0]
+    subgraph_nodes_df["distance_to_goal_meters"] = subgraph_nodes_df.apply(
+        lambda row: haversine(
+            (row.lat, row.lon), (goal_coords.lat, goal_coords.lon)
+        ), axis=1
+    )
     
         # filter time series dataframe based on nodes from subgraph
     filtered_time_series_df = time_series.merge(
         subgraph_nodes_df, left_on=["lat", "lon"], right_on=["lat", "lon"], how="inner"
     )
-
+    
         # get edge features from subgraph with sorted node ids
     edge_features = get_edge_features_subgraph(graph).reset_index()
     
@@ -448,12 +468,11 @@ def get_static_data_object(
     edge_attr = torch.tensor(
         edge_features[["length", "maxspeed"]].values, dtype=torch.float
     )
-    print(f"{edge_attr= }")
 
         # build static node features based on node_id_y (sorted)
     node_features = filtered_time_series_df.drop_duplicates(subset=["node_id_y"]).copy()
     node_features = torch.tensor(
-        node_features[["lat", "lon", "has_light"]].values, dtype=torch.float
+        node_features[["lat", "lon", "has_light", "distance_to_goal_meters"]].values, dtype=torch.float
     )
     
         # build static data object
@@ -467,15 +486,11 @@ def get_static_data_object(
     static_data.filtered_time_series_df = filtered_time_series_df
     
         # add start and end node to static data object
-    if start_node is None:
-        start_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
-    if end_node is None:
-        end_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
-        while start_node == end_node:
-            end_node = np.random.choice(filtered_time_series_df.node_id_y.values).item()
     static_data.start_node = start_node
     static_data.end_node = end_node
-    
+
+    plot_sub_graph_in_and_out_nodes_helmond(graph, G_pt)
+        
     return static_data
 
 if __name__ == "__main__":
