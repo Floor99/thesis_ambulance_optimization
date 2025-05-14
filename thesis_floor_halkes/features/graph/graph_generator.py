@@ -30,7 +30,10 @@ def create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, timeseries_df):
     
     return G_sub, G_pt
 
-def plot_sub_graph_in_and_out_nodes_helmond(G_sub, G_pt):
+def plot_sub_graph_in_and_out_nodes_helmond(G_sub, G_pt, ax=None):
+    if ax is None: 
+        fig, ax = plt.subplots(figsize=(8, 8))
+    
     # split nodes into inside vs. outside
     all_nodes     = set(G_pt.nodes())
     inside_nodes  = set(G_sub.nodes())
@@ -40,7 +43,7 @@ def plot_sub_graph_in_and_out_nodes_helmond(G_sub, G_pt):
     pos = {nid: (data['x'], data['y']) for nid, data in G_pt.nodes(data=True)}
 
 
-    fig, ax = plt.subplots(figsize=(8,8))
+    # fig, ax = plt.subplots(figsize=(8,8))
 
     # draw all edges faintly
     ox.plot_graph(
@@ -66,9 +69,11 @@ def plot_sub_graph_in_and_out_nodes_helmond(G_sub, G_pt):
         c='blue', s=10, label='inside DF1'
     )
 
-    ax.set_title("OSMnx pull vs. DF1-filtered nodes")
+    # ax.set_title("OSMnx pull vs. DF1-filtered nodes")
     ax.legend()
-    plt.savefig("data/processed/helmond_subgraph.png", dpi=300)
+    # plt.savefig("data/plots/helmond_subgraph.png", dpi=300)
+    
+    return ax 
     
     
 def get_node_features_subgraph(G_sub):

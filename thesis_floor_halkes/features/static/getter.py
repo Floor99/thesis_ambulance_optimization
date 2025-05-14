@@ -490,6 +490,8 @@ def get_static_data_object(
     static_data.end_node = end_node
 
     plot_sub_graph_in_and_out_nodes_helmond(graph, G_pt)
+    static_data.G_sub = graph
+    static_data.G_pt = G_pt
         
     return static_data
 

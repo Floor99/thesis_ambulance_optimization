@@ -1,6 +1,9 @@
 from typing import List
 import torch
 from torch_geometric.data import Data, Dataset
+import pandas as pd
+import random
+from pprint import pprint
 
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, RandomDynamicFeatureGetter
 from thesis_floor_halkes.features.static.getter import get_static_data_object
@@ -10,8 +13,7 @@ from thesis_floor_halkes.state import State
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.utils.travel_time import calculate_edge_travel_time
 from thesis_floor_halkes.environment.base import Environment
-from pprint import pprint
-import pandas as pd
+
 
 class DynamicEnvironment(Environment):
     def __init__(
@@ -30,18 +32,23 @@ class DynamicEnvironment(Environment):
         self.start_timestamp = start_timestamp
     
     def reset(self):
-        if isinstance(self.static_dataset, Dataset):
-            nr_of_graphs = self.static_dataset.len()
-            graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
-            self.static_data = self.static_dataset.get(graph_idx)
-        elif isinstance(self.static_dataset, list):
-            nr_of_graphs = len(self.static_dataset)
-            graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
-            self.static_data = self.static_dataset[graph_idx]
-        else:
-            raise ValueError("Dataset must be a list of Data objects or a Dataset object.")
-        print(f"{self.static_data= }")
-        print(f"{self.static_data.edge_attr= }")
+        # if isinstance(self.static_dataset, Dataset):
+        #     nr_of_graphs = self.static_dataset.len()
+        #     graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
+        #     self.static_data = self.static_dataset.get(graph_idx)
+        # elif isinstance(self.static_dataset, list):
+        #     nr_of_graphs = len(self.static_dataset)
+        #     graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
+        #     self.static_data = self.static_dataset[graph_idx]
+        # else:
+        #     raise ValueError("Dataset must be a list of Data objects or a Dataset object.")
+        
+        # 1) pick a random graph index
+        n = len(self.static_dataset)
+        idx = random.randrange(n)
+        # 2) fetch it (works for list or Dataset)
+        self.static_data = self.static_dataset[idx]
+        
         self.steps_taken = 0
         self.terminated = False
         self.truncated = False
@@ -49,19 +56,32 @@ class DynamicEnvironment(Environment):
         # print(f"{self.static_data.edge_index.t()}")
         self.adjecency_matrix = build_adjecency_matrix(self.static_data.num_nodes, self.static_data)
         
-        # store the user’s desired start‐time
+        # # store the user’s desired start‐time
+        # if self.start_timestamp is not None:
+        #     self.start_timestamp = pd.to_datetime(self.start_timestamp)
+        #     if self.start_timestamp not in self.time_stamps:
+        #         raise ValueError(f"start_timestamp {self.start_timestamp} not in dynamic data")
+        # self.start_timestamp = self.start_timestamp
+        
+        
+        # # internal pointer into self.timestamps
+        # if self.start_timestamp is not None:
+        #     self.current_time_idx = self.time_stamps.index(self.start_timestamp)
+        # else:
+        #     self.current_time_idx = 0
+            
         if self.start_timestamp is not None:
             self.start_timestamp = pd.to_datetime(self.start_timestamp)
             if self.start_timestamp not in self.time_stamps:
                 raise ValueError(f"start_timestamp {self.start_timestamp} not in dynamic data")
-        self.start_timestamp = self.start_timestamp
-        
-        
-        # internal pointer into self.timestamps
-        if self.start_timestamp is not None:
             self.current_time_idx = self.time_stamps.index(self.start_timestamp)
-        else:
-            self.current_time_idx = 0
+        else: 
+            T = len(self.time_stamps)
+            max_start = max(0, T - 1 - self.max_steps)
+            self.current_time_idx = random.randrange(0, max_start)
+            self.start_timestamp = self.time_stamps[self.current_time_idx]
+        print(f"{self.start_timestamp= }")
+
         
         self.states = []
         init_state = self._get_state()
