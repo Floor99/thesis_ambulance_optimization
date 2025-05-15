@@ -163,7 +163,7 @@ class DynamicAgent(Agent):
         log_probs_tensor = torch.stack(self.action_log_probs)
         policy_loss = -(log_probs_tensor * advantages).mean()
         entropy_loss = torch.stack(self.entropies).mean()
-        policy_loss = policy_loss - 0.999999 * entropy_loss
+        policy_loss = policy_loss - 0.1 * entropy_loss
         self.routes.append(self.current_route.copy())
             
         return policy_loss, baseline_loss

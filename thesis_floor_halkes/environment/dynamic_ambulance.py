@@ -32,43 +32,11 @@ class DynamicEnvironment(Environment):
         self.start_timestamp = start_timestamp
     
     def reset(self):
-        # if isinstance(self.static_dataset, Dataset):
-        #     nr_of_graphs = self.static_dataset.len()
-        #     graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
-        #     self.static_data = self.static_dataset.get(graph_idx)
-        # elif isinstance(self.static_dataset, list):
-        #     nr_of_graphs = len(self.static_dataset)
-        #     graph_idx = torch.randint(0, nr_of_graphs, (1,)).item()
-        #     self.static_data = self.static_dataset[graph_idx]
-        # else:
-        #     raise ValueError("Dataset must be a list of Data objects or a Dataset object.")
-        
-        # 1) pick a random graph index
-        n = len(self.static_dataset)
-        idx = random.randrange(n)
-        # 2) fetch it (works for list or Dataset)
-        self.static_data = self.static_dataset[idx]
-        
         self.steps_taken = 0
         self.terminated = False
         self.truncated = False
         self.time_stamps = sorted(self.static_data.filtered_time_series_df['timestamp'].unique())
-        # print(f"{self.static_data.edge_index.t()}")
         self.adjecency_matrix = build_adjecency_matrix(self.static_data.num_nodes, self.static_data)
-        
-        # # store the user’s desired start‐time
-        # if self.start_timestamp is not None:
-        #     self.start_timestamp = pd.to_datetime(self.start_timestamp)
-        #     if self.start_timestamp not in self.time_stamps:
-        #         raise ValueError(f"start_timestamp {self.start_timestamp} not in dynamic data")
-        # self.start_timestamp = self.start_timestamp
-        
-        
-        # # internal pointer into self.timestamps
-        # if self.start_timestamp is not None:
-        #     self.current_time_idx = self.time_stamps.index(self.start_timestamp)
-        # else:
-        #     self.current_time_idx = 0
             
         if self.start_timestamp is not None:
             self.start_timestamp = pd.to_datetime(self.start_timestamp)
@@ -85,7 +53,6 @@ class DynamicEnvironment(Environment):
         
         self.states = []
         init_state = self._get_state()
-        # print(f"{init_state.static_data.edge_index.t()= }")
         self.states.append(init_state)
         
         return init_state
@@ -116,6 +83,7 @@ class DynamicEnvironment(Environment):
         
         # get static features
         static_features = self.static_data
+        print(f"{static_features.start_node= }")
         # print(f"{static_features= }")
         # print(f"{static_features.edge_attrs= }")
         # print(f"{dynamic_features.x= }")
@@ -123,9 +91,13 @@ class DynamicEnvironment(Environment):
         # get valid actions
         valid_actions = self.get_valid_actions(self.adjecency_matrix, current_node, visited_nodes)
         # print(f"{self.static_data.start_node= }, {self.static_data.end_node= }")
+        print(f"{self.static_data.end_node= }")
         print(f"{current_node= }")
         print(f"{visited_nodes= }")
         print(f"{valid_actions= }")
+        print(f"{self.adjecency_matrix[current_node]= }")
+        for i in valid_actions:
+            print(f"{self.adjecency_matrix[i]= }")
         
         state = State(
             static_data=static_features,
@@ -168,7 +140,7 @@ class DynamicEnvironment(Environment):
             length_feature_idx=0, 
             speed_feature_idx=1
         )
-        
+        print(f"{travel_time_edge= }")
 
         # Compute the reward 
         penalty = self.reward_modifier_calculator.calculate_total(visited_nodes = old_state.visited_nodes,
@@ -196,12 +168,44 @@ class DynamicEnvironment(Environment):
         
         return new_state, reward, self.terminated, self.truncated, {}
 
-    def get_valid_actions(self, adj_matrix: dict[int, list[tuple[int, int]]], current_node:int, visited_nodes) -> list[int]:
+    # def get_valid_actions(self, adj_matrix: dict[int, list[tuple[int, int]]], current_node:int, visited_nodes) -> list[int]:
+    #     """
+    #     Return valid actions (neighbors) based on the adjacency matrix.
+    #     """
+    #     # return [v for v, _ in adj_matrix[current_node]]
+    #     return [v for v, _ in adj_matrix[current_node] if v not in visited_nodes]
+    
+    def get_valid_actions(self,
+                      adj_matrix: dict[int, list[tuple[int, int]]],
+                      current_node: int,
+                      visited_nodes: set[int]
+                     ) -> list[int]:
         """
-        Return valid actions (neighbors) based on the adjacency matrix.
+        Return valid actions (neighbors) based on the adjacency matrix,
+        masking out dead-ends (nodes whose only neighbor is `current_node`)
+        except when that node is the goal.
         """
-        # return [v for v, _ in adj_matrix[current_node]]
-        return [v for v, _ in adj_matrix[current_node] if v not in visited_nodes]
+        valid = []
+        goal = self.static_data.end_node  
+
+        for v, _ in adj_matrix[current_node]:
+            # 1. skip visited
+            if v in visited_nodes:
+                continue
+
+            # 2. always allow stepping onto the goal
+            if v == goal:
+                valid.append(v)
+                continue
+
+            # 3. check if v has any other neighbor besides current_node
+            #    (i.e. degree > 1)
+            has_other = any(u != current_node for u, _ in adj_matrix[v])
+            if has_other:
+                valid.append(v)
+
+        return valid
+
     
     def update_visited_nodes(self, prev_visited_nodes:list[int], action):
         return prev_visited_nodes + [action]

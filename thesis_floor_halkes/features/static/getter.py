@@ -432,6 +432,7 @@ def get_static_data_object(
     
         # get node features from subgraph with sorted node ids
     subgraph_nodes_df = get_node_features_subgraph(graph)
+    print(f"{subgraph_nodes_df= }")
     
         # add start and end node to static data object
     if start_node is None:
@@ -455,6 +456,7 @@ def get_static_data_object(
     filtered_time_series_df = time_series.merge(
         subgraph_nodes_df, left_on=["lat", "lon"], right_on=["lat", "lon"], how="inner"
     )
+    print(f"{filtered_time_series_df= }")
     
         # get edge features from subgraph with sorted node ids
     edge_features = get_edge_features_subgraph(graph).reset_index()
@@ -492,12 +494,19 @@ def get_static_data_object(
     plot_sub_graph_in_and_out_nodes_helmond(graph, G_pt)
     static_data.G_sub = graph
     static_data.G_pt = G_pt
+    deduped_node_ids = filtered_time_series_df.drop_duplicates(subset=["node_id_y"]).copy()
+    node_id_mapping = dict(zip(deduped_node_ids["node_id_y"], deduped_node_ids["node_id_x"]))
+    print(node_id_mapping)
+    static_data.old_node_id = node_id_mapping
+    # static_data.old_node_id = filtered_time_series_df["node_id_x"].values
+    print(f"{static_data= }")
+    print(f"{static_data.old_node_id= }")
         
     return static_data
 
 if __name__ == "__main__":
     get_static_data_object(
         time_series_df_path="data/processed/node_features.parquet",
-        dist=1000,
-        seed=5,
+        dist=50,
+        seed=1,
     )
