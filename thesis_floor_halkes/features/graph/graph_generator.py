@@ -126,7 +126,7 @@ def get_edge_features_subgraph(G_sub):
     return edges
 
 
-def plot_with_route(G_sub, G_pt, route=None, ax=None):
+def plot_with_route(G_sub, G_pt, route=None, ax=None, goal_node=None):
     if ax is None:
         fig, ax = plt.subplots(figsize=(8,8))
 
@@ -137,28 +137,14 @@ def plot_with_route(G_sub, G_pt, route=None, ax=None):
         edge_linewidth=0.5, bgcolor='white'
     )
 
-    # optionally draw the route
+    # draw route in graph
     if route is not None:
-        print(route)
-        route = np.array(route).tolist()
-        print(route)
-        for u, v in zip(route[:-1], route[1:]):
-            print(f"{u= }, {v= }")
-            print(f"{G_sub.get_edge_data(u, v)= }")
-            # check if the edge exists in the subgraph
-            if not G_sub.has_edge(u, v):
-                print(f"Edge {u}-{v} not found in subgraph.")
-                continue
-            # check if nodes are in the subgraph
-            if not G_sub.has_node(u) or not G_sub.has_node(v):
-                print(f"Node {u} or {v} not found in subgraph.")
-                continue
-            # if there are parallel edges, select the shortest in length
-            data = min(G_sub.get_edge_data(u, v).values(), key=lambda d: d["length"])
+        reached = (goal_node is not None and route[-1] == goal_node)
+        color = 'tab:green' if reached else 'tab:red'
         ox.plot_graph_route(
             G_pt,
             route,
-            route_color='tab:green',
+            route_color=color,
             route_linewidth=3,
             ax=ax,
             show=False,
@@ -166,6 +152,20 @@ def plot_with_route(G_sub, G_pt, route=None, ax=None):
             orig_dest_node_size=0
         )
 
+    if route: 
+        start_node = route[0]
+        if start_node in G_pt.nodes():
+            x0 = G_pt.nodes[start_node]['x']
+            y0 = G_pt.nodes[start_node]['y']
+            ax.scatter(x0, y0, c='green', s=100, marker='*', label = 'start')
+    
+    if goal_node is not None: 
+        if goal_node in G_pt.nodes():
+            x1 = G_pt.nodes[goal_node]['x']
+            y1 = G_pt.nodes[goal_node]['y']
+            ax.scatter(x1, y1, c='red', s=100, marker='*', label = 'goal')
+    
+    
     # then your inside/outside scatters...
     pos = {nid: (data['x'], data['y']) for nid, data in G_pt.nodes(data=True)}
     inside = set(G_sub.nodes())

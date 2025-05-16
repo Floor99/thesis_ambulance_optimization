@@ -8,7 +8,7 @@ from pprint import pprint
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, RandomDynamicFeatureGetter
 from thesis_floor_halkes.features.static.getter import get_static_data_object
 from thesis_floor_halkes.penalties.calculator import PenaltyCalculator, RewardModifierCalculator
-from thesis_floor_halkes.penalties.revisit_node_penalty import AggregatedStepPenalty
+from thesis_floor_halkes.penalties.revisit_node_penalty import AggregatedStepPenalty, WaitTimePenalty
 from thesis_floor_halkes.state import State
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.utils.travel_time import calculate_edge_travel_time
@@ -54,6 +54,9 @@ class DynamicEnvironment(Environment):
         self.states = []
         init_state = self._get_state()
         self.states.append(init_state)
+        
+        self.step_travel_time_route = []
+        self.step_modifier_contributions = []
         
         return init_state
     
@@ -142,6 +145,8 @@ class DynamicEnvironment(Environment):
         )
         print(f"{travel_time_edge= }")
 
+        self.step_travel_time_route.append(travel_time_edge)
+        
         # Compute the reward 
         penalty = self.reward_modifier_calculator.calculate_total(visited_nodes = old_state.visited_nodes,
                                                             action= action,
@@ -150,7 +155,18 @@ class DynamicEnvironment(Environment):
                                                             valid_actions = new_state.valid_actions,
                                                             environment = self)
 
-        reward = - travel_time_edge + penalty       
+        self.modifier_contributions = self.reward_modifier_calculator.store_modifier_per_step(visited_nodes = old_state.visited_nodes,
+                                                                                         action= action,
+                                                                                         current_node= new_state.current_node,
+                                                                                         end_node= new_state.end_node,
+                                                                                         valid_actions = new_state.valid_actions,
+                                                                                         environment = self)
+        
+        self.modifier_contributions.update({"step": self.steps_taken})
+        self.step_modifier_contributions.append(self.modifier_contributions)
+        print(f"{self.step_modifier_contributions= }")
+        
+        reward = - travel_time_edge + penalty
         
         if new_state.valid_actions == []:
             self.truncated = True

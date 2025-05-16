@@ -497,10 +497,10 @@ def get_static_data_object(
     deduped_node_ids = filtered_time_series_df.drop_duplicates(subset=["node_id_y"]).copy()
     node_id_mapping = dict(zip(deduped_node_ids["node_id_y"], deduped_node_ids["node_id_x"]))
     print(node_id_mapping)
-    static_data.old_node_id = node_id_mapping
-    # static_data.old_node_id = filtered_time_series_df["node_id_x"].values
+    static_data.node_id_mapping = node_id_mapping
+    # static_data.node_id_mapping = filtered_time_series_df["node_id_x"].values
     print(f"{static_data= }")
-    print(f"{static_data.old_node_id= }")
+    print(f"{static_data.node_id_mapping= }")
         
     return static_data
 

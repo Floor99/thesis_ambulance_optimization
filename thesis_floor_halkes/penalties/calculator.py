@@ -59,4 +59,19 @@ class RewardModifierCalculator:
         for modifier, weight in zip(self.modifiers, self.weights):
             total_modification += modifier(**kwargs) * weight
             print(f"Modifier: {modifier.name}, contribution: {modifier(**kwargs) * weight}")
+            
         return total_modification
+    
+    def store_modifier_per_step(self, **kwargs) -> list[dict]:
+        self.modifier_contributions = {}
+        
+        for modifier, weight in zip(self.modifiers, self.weights):
+            contribution = modifier(**kwargs) * weight
+            self.modifier_contributions.update({modifier.name: contribution})
+        return self.modifier_contributions
+    
+    def reset(self):
+        """
+        Reset the stored modifiers.
+        """
+        self.modifier_contributions.clear()

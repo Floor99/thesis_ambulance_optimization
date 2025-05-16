@@ -1,5 +1,7 @@
 import json
 import random
+from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
 import torch
 import mlflow
@@ -88,7 +90,7 @@ env = DynamicEnvironment(
 hidden_size = 64
 input_dim = hidden_size * 2
 learning_rate = 0.001
-num_epochs = 40
+num_epochs = 4
 
 static_encoder = StaticGATEncoder(in_channels=4, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4)
 dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size, num_layers=4)
@@ -183,18 +185,26 @@ with mlflow.start_run():
             final_node = agent.current_route[-1]
             goal_node = env.static_data.end_node
             reached_goal = int(final_node == goal_node)
-            
+            total_travel_time = sum(env.step_travel_time_route) #+ sum([step['Waiting Time Penalty'] for step in env.])
+            total_travel_time_including_waittime = total_travel_time + sum([step['Waiting Time Penalty'] for step in env.step_modifier_contributions])
+            reward_modifier_contributions = [
+                    {k: float(v) for k, v in step_contrib.items()}
+                    for step_contrib in env.step_modifier_contributions
+                ]
+        
+          
             # MLflow logging
             mlflow.log_metric("reward", total_reward, step=step_id)
             mlflow.log_metric("policy_loss", policy_loss.item(), step=step_id)
             mlflow.log_metric("baseline_loss", baseline_loss.item(), step=step_id)
             mlflow.log_metric("avg_entropy", sum(entropies)/len(entropies), step=step_id)
             mlflow.log_metric("reached_goal", reached_goal, step=step_id)
+            mlflow.log_metric("total_travel_time", total_travel_time, step=step_id)
             
-            route_path = f"checkpoints/route_epoch_{epoch}_graph_{idx}.txt"
-            with open(route_path, "w") as f:
-                f.write("->".join(map(str, agent.current_route)))
-            mlflow.log_artifact(route_path)
+            # route_path = f"checkpoints/route_epoch_{epoch}_graph_{idx}.txt"
+            # with open(route_path, "w") as f:
+            #     f.write("->".join(map(str, agent.current_route)))
+            # mlflow.log_artifact(route_path)
             
             episode_infos.append({
                 "epoch": int(epoch),
@@ -202,21 +212,27 @@ with mlflow.start_run():
                 "start_time": str(env.start_timestamp),
                 "start_node": int(env.static_data.start_node),
                 "end_node": int(env.static_data.end_node),
-                "reward": float(total_reward),
+                "reached_goal": int(reached_goal),
+                "total_travel_time": float(total_travel_time),
+                "total_travel_time_including_waittime": float(total_travel_time_including_waittime),
+                "total_reward": float(total_reward),
                 "avg_entropy": float(avg_entropy),
                 "policy_loss": float(policy_loss.item()),
                 "baseline_loss": float(baseline_loss.item()),
-                "reached_goal": int(reached_goal),
-                "route": [int(n) for n in agent.current_route]  # ensure route is a list of ints
+                "route": [int(n) for n in agent.current_route],
+                "reward_modifier_contributions": reward_modifier_contributions,
             })
-
-            # Plot the route in graph
-            orig_ids_route = [env.static_data.old_node_id[i] for i in agent.current_route]
             
-            fig, ax = plot_with_route(env.static_data.G_sub, env.static_data.G_pt, orig_ids_route)
-            fig.savefig(f"data/plots/subgraph_route_graph_{idx}_epoch_{epoch}.png", dpi=300)
+            # Plot the route in graph
+            orig_ids_route = [env.static_data.node_id_mapping[i] for i in agent.current_route]
+            route = np.array(orig_ids_route).tolist()
+            fig, ax = plot_with_route(env.static_data.G_sub, env.static_data.G_pt, route, goal_node=env.static_data.node_id_mapping[goal_node])
+            mlflow.log_figure(fig, f"plots/route_epoch_{epoch}_graph_{idx}.png")
+            # plt.close(fig)
+            # fig.savefig(f"data/plots/subgraph_route_graph_{idx}_epoch_{epoch}.png", dpi=300)
             
             agent.reset()
+            env.reward_modifier_calculator.reset()
             
             num_nodes = state.static_data.x.size(0)
             logger.log(total_reward,num_nodes)
@@ -225,10 +241,11 @@ with mlflow.start_run():
             # logger.summary()
     
         # Save JSON summary of all episodes in this epoch
-        episode_json_path = f"checkpoints/episode_info_epoch{epoch}.json"
-        with open(episode_json_path, "w") as f:
-            json.dump(episode_infos, f, indent=2)
-        mlflow.log_artifact(episode_json_path)
+        mlflow.log_dict(episode_infos, f"checkpoints/episode/info_epoch{epoch}.json")
+        # episode_json_path = f"checkpoints/episode_info_epoch{epoch}.json"
+        # with open(episode_json_path, "w") as f:
+        #     json.dump(episode_infos, f, indent=2)
+        # mlflow.log_artifact(episode_json_path)
 
         # Save .pt checkpoint
         checkpoint_path = f"checkpoints/agent_epoch_{epoch}.pt"

@@ -2,6 +2,9 @@ runs
 policy
 *.tfevents.*
 data/
+cache/
+checkpoints/
+mlruns/ 
 
 
 # Byte-compiled / optimized / DLL files
