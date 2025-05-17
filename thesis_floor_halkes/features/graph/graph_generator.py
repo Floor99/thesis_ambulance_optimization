@@ -142,6 +142,7 @@ def get_edge_features_subgraph(G_sub):
 def plot_with_route(G_sub, G_pt, route=None, ax=None, goal_node=None):
     if ax is None:
         fig, ax = plt.subplots(figsize=(8, 8))
+        plt.close(fig)
 
     # draw base graph
     ox.plot_graph(
