@@ -56,6 +56,19 @@ dataset = StaticListDataset(
     dists=[200, 300, 400, 500, 600],  # each graph has its own radius
 )
 
+dynamic_node_idx = {'status': 0,
+               'wait_time': 1,
+               'current_node': 2,
+               'visited_nodes': 3,}
+
+static_node_idx = {'lat': 0,
+                   'lon': 1,
+                   'has_light': 2,
+                   'dist_to_goal': 3,}
+
+static_edge_idx = {'length': 0,
+                   'speed': 1,}
+
 # dataset = [get_static_data_object(
 #     time_series_df_path="data/processed/node_features.parquet",
 #     dist = 1000,
@@ -99,14 +112,17 @@ env = DynamicEnvironment(
     static_dataset=dataset,
     dynamic_feature_getter=DynamicFeatureGetterDataFrame(),
     reward_modifier_calculator=reward_modifier_calculator,
-    max_steps=3,
+    max_steps=30,
     # start_timestamp = '2024-01-31 08:30:00',
+    dynamic_node_idx=dynamic_node_idx,
+    static_node_idx=static_node_idx,
+    static_edge_idx=static_edge_idx,
 )
 
 hidden_size = 64
 input_dim = hidden_size * 2
 learning_rate = 0.001
-num_epochs = 2
+num_epochs = 500
 
 static_encoder = StaticGATEncoder(
     in_channels=4, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4
@@ -118,8 +134,6 @@ decoder = AttentionDecoder(embed_dim=hidden_size * 2, num_heads=4)
 fixed_context = FixedContext(embed_dim=hidden_size * 2)
 baseline = CriticBaseline(hidden_size * 2, hidden_dim=128)
 
-use_joint_optimization = False  # or False
-baseline_weight = 0.001  # or 0.1 if critic loss dominates
 gamma = 0.99
 agent = DynamicAgent(
     static_encoder=static_encoder,
@@ -129,7 +143,11 @@ agent = DynamicAgent(
     baseline=baseline,
     gamma=gamma,
 )
-if use_joint_optimization:
+
+use_joint_optimization = True  # or False
+baseline_weight = 0.0001 if baseline is not None else 0.0
+
+if use_joint_optimization and baseline is not None:
     # One optimizer for all trainable components
     optimizer = torch.optim.Adam(
         list(agent.static_encoder.parameters())
@@ -146,7 +164,8 @@ else:
         + list(agent.decoder.parameters()),
         lr=learning_rate,
     )
-    baseline_optimizer = torch.optim.Adam(agent.baseline.parameters(), lr=learning_rate)
+    if baseline is not None:
+        baseline_optimizer = torch.optim.Adam(agent.baseline.parameters(), lr=learning_rate)
 
 
 policy_parameters = [
@@ -154,9 +173,10 @@ policy_parameters = [
     {"params": agent.dynamic_encoder.parameters()},
     {"params": agent.decoder.parameters()},
 ]
-baseline_parameters = [
-    {"params": agent.baseline.parameters()},
-]
+if baseline is not None:
+    baseline_parameters = [
+        {"params": agent.baseline.parameters()},
+    ]
 
 logger = RewardLogger(smooth_window=20)
 torch.autograd.set_detect_anomaly(True)
@@ -175,26 +195,25 @@ with mlflow.start_run():
     )
 
     for epoch in range(num_epochs):
-        print(f"\n === Epoch {epoch} ===")
+        print(f"Epoch {epoch + 1}/{num_epochs}")
         episode_infos = []
 
         for graph_idx, static_data in enumerate(dataset):
-            print(f"\n\n === Graph {graph_idx} ===")
-            # if graph_idx == 1:
-            #     break
+            if graph_idx == 2:
+                break
             env.static_data = static_data
             total_reward = 0
             state = env.reset()
             entropies = []
 
             for step in range(env.max_steps):
-                print(f"\n{step= }")
                 action, action_log_prob, entropy = agent.select_action(state)
                 entropies.append(entropy.item())
 
-                embedding = agent.embeddings[-1]["final"]
-                embedding_for_critic = embedding.detach()  # .clone()#.requires_grad_()
-                baseline_value = agent.baseline(embedding_for_critic)
+                if baseline is not None:
+                    embedding = agent.embeddings[-1]["final"]
+                    embedding_for_critic = embedding.detach()
+                    baseline_value = agent.baseline(embedding_for_critic)
 
                 new_state, reward, terminated, truncated, _ = env.step(action)
 
@@ -202,7 +221,8 @@ with mlflow.start_run():
                 agent.store_action_log_prob(action_log_prob)
                 agent.store_action(action)
                 agent.store_reward(reward)
-                agent.store_baseline_value(baseline_value)
+                if baseline is not None:
+                    agent.store_baseline_value(baseline_value)
                 agent.store_entropy(entropy)
 
                 total_reward += reward
@@ -214,19 +234,23 @@ with mlflow.start_run():
             step_id = epoch * len(dataset.data_list) + graph_idx
 
             policy_loss, baseline_loss = agent.finish_episode()
-            total_loss = policy_loss + baseline_weight * baseline_loss
+            total_loss = policy_loss + (baseline_weight * baseline_loss)
 
-            if use_joint_optimization:
+            if use_joint_optimization and baseline is not None:
                 optimizer.zero_grad()
                 total_loss.backward()
                 optimizer.step()
             else:
                 policy_optimizer.zero_grad()
-                baseline_optimizer.zero_grad()
-                policy_loss.backward(retain_graph=True)
-                baseline_loss.backward()
-                policy_optimizer.step()
-                baseline_optimizer.step()
+                if baseline is not None:
+                    baseline_optimizer.zero_grad()
+                    policy_loss.backward(retain_graph=True)
+                    baseline_loss.backward()
+                    policy_optimizer.step()
+                    baseline_optimizer.step()
+                else:
+                    policy_loss.backward()
+                    policy_optimizer.step()
 
             ### MLflow logging
             avg_entropy = sum(entropies) / len(entropies)
@@ -259,11 +283,10 @@ with mlflow.start_run():
                 "total_reward": float(total_reward),
                 "avg_entropy": float(avg_entropy),
                 "policy_loss": float(policy_loss.item()),
-                "baseline_loss": float(baseline_loss.item()),
+                "baseline_loss": float(baseline_loss.item()) if baseline else 0,
                 "route": [int(n) for n in agent.current_route],
                 "reward_modifier_contributions": reward_modifier_contributions,
             }
-            episode_infos.append(episode_info)
 
             orig_ids_route = [
                 env.static_data.node_id_mapping[i] for i in agent.current_route
@@ -281,7 +304,8 @@ with mlflow.start_run():
                 {
                     "reward": total_reward,
                     "policy_loss": policy_loss.item(),
-                    "baseline_loss": baseline_loss.item(),
+                    "baseline_loss": baseline_loss.item() if baseline else 0,
+                    "total_loss": total_loss.item(),
                     "avg_entropy": avg_entropy,
                     "reached_goal": reached_goal,
                     "total_travel_time": total_travel_time,

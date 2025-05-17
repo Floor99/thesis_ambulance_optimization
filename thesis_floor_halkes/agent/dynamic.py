@@ -151,23 +151,32 @@ class DynamicAgent(Agent):
         for r in reversed(self.rewards):
             R = r + self.gamma * R
             returns.insert(0, R)
-
+        print(f"Returns: {returns}")
         returns = torch.tensor(returns)
+        print(f"Returns tensor: {returns}")
         returns = (returns - returns.mean()) / (returns.std() + 1e-6)
-
+        # print(f"Normalized returns: {returns}")
         if self.baseline is not None:
             baseline_values = torch.stack(self.baseline_values)
             advantages = returns - baseline_values
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+            # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
             baseline_loss = F.mse_loss(baseline_values, returns)
         else:
+            print("No baseline model provided. Using returns as advantages.")
             advantages = returns
+            print(f"Advantages: {advantages}")
             baseline_loss = 0
 
         log_probs_tensor = torch.stack(self.action_log_probs)
+        print(f"self.action_log_probs: {self.action_log_probs}")
+        print(f"Log probs tensor: {log_probs_tensor}")
+        policy_loss = -(log_probs_tensor * advantages)
+        print(f"Policy loss: {policy_loss}")
         policy_loss = -(log_probs_tensor * advantages).mean()
+        print(f"Policy loss mean: {policy_loss}")
         entropy_loss = torch.stack(self.entropies).mean()
-        policy_loss = policy_loss - 0.01 * entropy_loss
+        print(f"Entropy loss: {entropy_loss}")
+        policy_loss = policy_loss - 0.1 * entropy_loss
 
         return policy_loss, baseline_loss
 

@@ -75,18 +75,22 @@ class WaitTimePenalty(Penalty):
     def __init__(self, name: str, penalty: float = None):
         super().__init__(name, penalty)
 
-    def __call__(self, **kwargs) -> float:
+    def __call__(self, **kwargs,) -> float:
         action = kwargs.get("action", int)
         environment = kwargs.get("environment", Environment)
-
-        if (
-            environment.states[-1].static_data.x[:, 2][action]
-            and not environment.states[-1].dynamic_data.x[:, 0][action]
-        ):
-            return -(environment.states[-1].dynamic_data.x[:, 1][action])
+        has_light_idx = kwargs.get("has_light_idx")
+        status_idx = kwargs.get("status_idx")
+        wait_time_idx = kwargs.get("wait_time_idx")
+        
+        has_light = bool(environment.states[-1].static_data.x[action, has_light_idx])
+        status = bool(environment.states[-1].dynamic_data.x[action, status_idx])
+        wait_time = float(environment.states[-1].dynamic_data.x[action, wait_time_idx])
+        
+        if has_light and not status:
+            return -wait_time
         return 0.0
-
-
+        
+        
 class GoalBonus(Bonus):
     """
     Bonus for reaching the goal in the environment.
@@ -120,6 +124,7 @@ class CloserToGoalBonus(Bonus):
 
     def __call__(self, **kwargs) -> float:
         environment = kwargs.get("environment", Environment)
+        dist_to_goal_idx = kwargs.get("dist_to_goal_idx", int)
 
         if len(environment.states) >= 2:
             previous_node = environment.states[-2].current_node
@@ -127,7 +132,7 @@ class CloserToGoalBonus(Bonus):
             previous_node = environment.states[-1].current_node
         current_node = environment.states[-1].current_node
 
-        dist_to_goal = environment.states[-1].static_data.x[:, 3]
+        dist_to_goal = environment.states[-1].static_data.x[:, dist_to_goal_idx]
         distance_prev = dist_to_goal[previous_node].item()
         distance_curr = dist_to_goal[current_node].item()
 
@@ -147,8 +152,9 @@ class HigherSpeedBonus(Bonus):
     def __call__(self, **kwargs) -> float:
         environment = kwargs.get("environment", Environment)
         action = kwargs.get("action", int)
+        speed_idx = kwargs.get("speed_idx", int)
 
-        if environment.states[-1].static_data.edge_attr[:, 1][action].item() > 50.0:
+        if environment.states[-1].static_data.edge_attr[:, speed_idx][action].item() > 50.0:
             return self.bonus
         return 0.0
 

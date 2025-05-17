@@ -13,7 +13,7 @@ def log_agent_checkpoint(agent, epoch):
             "static_encoder": agent.static_encoder.state_dict(),
             "dynamic_encoder": agent.dynamic_encoder.state_dict(),
             "decoder": agent.decoder.state_dict(),
-            "baseline": agent.baseline.state_dict(),
+            # "baseline": agent.baseline.state_dict(),
         },
         artifact_path=f"epoch_{epoch:03}/agent",
     )
@@ -23,7 +23,7 @@ def log_full_models(agent):
     mlflow.pytorch.log_model(agent.static_encoder, "static_encoder_model")
     mlflow.pytorch.log_model(agent.dynamic_encoder, "dynamic_encoder_model")
     mlflow.pytorch.log_model(agent.decoder, "decoder_model")
-    mlflow.pytorch.log_model(agent.baseline, "baseline_model")
+    # mlflow.pytorch.log_model(agent.baseline, "baseline_model")
 
 
 def log_gradient_norms(module, module_name, step_id):

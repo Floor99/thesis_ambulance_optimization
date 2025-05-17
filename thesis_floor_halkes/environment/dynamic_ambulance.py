@@ -31,6 +31,9 @@ class DynamicEnvironment(Environment):
         reward_modifier_calculator: RewardModifierCalculator,
         max_steps: int = 30,
         start_timestamp: str | pd.Timestamp = None,
+        dynamic_node_idx: dict = None,
+        static_node_idx: dict = None,
+        static_edge_idx: dict = None,
     ):
         self.static_dataset = static_dataset
         self.dynamic_feature_getter = dynamic_feature_getter
@@ -38,6 +41,9 @@ class DynamicEnvironment(Environment):
         self.max_steps = max_steps
         # self.time_stamps = sorted(self.dynamic_feature_getter.df['timestamp'].unique())
         self.start_timestamp = start_timestamp
+        self.dynamic_node_idx = dynamic_node_idx
+        self.static_node_idx = static_node_idx
+        self.static_edge_idx = static_edge_idx
 
     def reset(self):
         self.steps_taken = 0
@@ -92,7 +98,7 @@ class DynamicEnvironment(Environment):
         # resample dynamic features
         dynamic_features = self.dynamic_feature_getter.get_dynamic_features(
             environment=self,
-            traffic_light_idx=0,
+            traffic_light_idx=self.static_node_idx["has_light"],
             current_node=current_node,
             visited_nodes=visited_nodes,
             time_step=self.current_time_idx,
@@ -165,6 +171,11 @@ class DynamicEnvironment(Environment):
             end_node=new_state.end_node,
             valid_actions=new_state.valid_actions,
             environment=self,
+            status_idx = self.dynamic_node_idx['status'],
+            wait_time_idx = self.dynamic_node_idx['wait_time'],
+            has_light_idx = self.static_node_idx['has_light'],
+            dist_to_goal_idx = self.static_node_idx['dist_to_goal'],
+            speed_idx = self.static_edge_idx['speed'],
         )
 
         self.modifier_contributions = (
@@ -175,6 +186,11 @@ class DynamicEnvironment(Environment):
                 end_node=new_state.end_node,
                 valid_actions=new_state.valid_actions,
                 environment=self,
+                status_idx = self.dynamic_node_idx['status'],
+                wait_time_idx = self.dynamic_node_idx['wait_time'],
+                has_light_idx = self.static_node_idx['has_light'],
+                dist_to_goal_idx = self.static_node_idx['dist_to_goal'],
+                speed_idx = self.static_edge_idx['speed'],
             )
         )
 
