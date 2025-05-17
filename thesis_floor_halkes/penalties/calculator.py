@@ -58,7 +58,6 @@ class RewardModifierCalculator:
         total_modification = 0.0
         for modifier, weight in zip(self.modifiers, self.weights):
             total_modification += modifier(**kwargs) * weight
-            print(f"Modifier: {modifier.name}, contribution: {modifier(**kwargs) * weight}")
             
         return total_modification
     

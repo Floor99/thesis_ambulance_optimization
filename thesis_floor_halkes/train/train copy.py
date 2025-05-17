@@ -85,29 +85,51 @@ env = DynamicEnvironment(
     static_dataset = dataset,
     dynamic_feature_getter = DynamicFeatureGetterDataFrame(),
     reward_modifier_calculator = reward_modifier_calculator,
-    max_steps = 3,
+    max_steps = 30,
     # start_timestamp = '2024-01-31 08:30:00',
 )
 
 hidden_size = 64
 input_dim = hidden_size * 2
 learning_rate = 0.001
-num_epochs = 2
+num_epochs = 250
 
 static_encoder = StaticGATEncoder(in_channels=4, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4)
 dynamic_encoder = DynamicGATEncoder(in_channels=4, hidden_size=hidden_size, num_layers=4)
 decoder = AttentionDecoder(embed_dim=hidden_size * 2, num_heads=4)
 fixed_context = FixedContext(embed_dim=hidden_size * 2)
-baseline = CriticBaseline()
+baseline = CriticBaseline(hidden_size * 2, hidden_dim=128)
 
+use_joint_optimization = False  # or False
+baseline_weight = 0.001  # or 0.1 if critic loss dominates
+gamma= 0.99
 agent = DynamicAgent(
     static_encoder= static_encoder,
     dynamic_encoder= dynamic_encoder,
     decoder= decoder,
     fixed_context=fixed_context,
     baseline=baseline,
+    gamma=gamma,
 )
-agent.routes.clear()
+if use_joint_optimization:
+    # One optimizer for all trainable components
+    optimizer = torch.optim.Adam(
+        list(agent.static_encoder.parameters()) +
+        list(agent.dynamic_encoder.parameters()) +
+        list(agent.decoder.parameters()) +
+        list(agent.baseline.parameters()),
+        lr=learning_rate
+    )
+else:
+    # Separate optimizers
+    policy_optimizer = torch.optim.Adam(
+        list(agent.static_encoder.parameters()) +
+        list(agent.dynamic_encoder.parameters()) +
+        list(agent.decoder.parameters()),
+        lr=learning_rate
+    )
+    baseline_optimizer = torch.optim.Adam(agent.baseline.parameters(), lr=learning_rate)
+
 
 policy_parameters = [
     {"params": agent.static_encoder.parameters()},
@@ -117,9 +139,6 @@ policy_parameters = [
 baseline_parameters = [
     {"params": agent.baseline.parameters()},
 ]
-policy_optimizer = torch.optim.Adam(policy_parameters, lr=learning_rate)
-baseline_optimizer = torch.optim.Adam(baseline_parameters, lr=learning_rate)
-
 
 logger = RewardLogger(smooth_window = 20)
 torch.autograd.set_detect_anomaly(True)
@@ -141,10 +160,11 @@ with mlflow.start_run():
         
         for graph_idx, static_data in enumerate(dataset):
             print(f"\n\n === Graph {graph_idx} ===")
+            # if graph_idx == 1:
+            #     break
             env.static_data = static_data
             total_reward = 0 
             state = env.reset()
-            
             entropies = []
             
             for step in range(env.max_steps):
@@ -153,8 +173,8 @@ with mlflow.start_run():
                 entropies.append(entropy.item())
                 
                 embedding = agent.embeddings[-1]["final"]
-                embedding_for_critic = embedding.detach().clone().requires_grad_()
-                baseline_value = agent.baseline(embedding_for_critic, hidden_dim=128)
+                embedding_for_critic = embedding.detach()#.clone()#.requires_grad_()
+                baseline_value = agent.baseline(embedding_for_critic)
                 
                 new_state, reward, terminated, truncated, _ = env.step(action)
                 
@@ -173,58 +193,28 @@ with mlflow.start_run():
                 
             step_id = epoch * len(dataset.data_list) + graph_idx
             
-            old_params = [param.clone() for param in agent.decoder.parameters()]
-
             policy_loss, baseline_loss = agent.finish_episode()
-            policy_optimizer.zero_grad()
-            baseline_optimizer.zero_grad()
-            policy_loss.backward(retain_graph=True)
-            # for name, param in agent.decoder.named_parameters():
-            #     if param.requires_grad:
-            #         print(f"{name}: {param}")
-            #     else:
-            #         print(f"{name}: NO GRAD")
-                # if param.grad is not None:
-                #     print(f"{name}: grad norm = {param.grad.norm().item()}")
-                # else:
-                #     print(f"{name}: NO GRAD")
+            total_loss = policy_loss + baseline_weight * baseline_loss
             
-            log_gradient_norms(agent.static_encoder, "static_encoder", step_id)
-            log_gradient_norms(agent.dynamic_encoder, "dynamic_encoder", step_id)
-            log_gradient_norms(agent.decoder, "decoder", step_id)
-            
-            for module in [agent.static_encoder, agent.dynamic_encoder, agent.decoder]:
-                clip_grad_norm_(module.parameters(), max_norm=1.0)
-            policy_optimizer.step()
-            
-            new_params = list(agent.decoder.parameters())
-            print("BOOOOOOYAAAAAAH")
-            
-            print(any((old != new).any() for old, new in zip(old_params, new_params)))
-            # for name, param in agent.decoder.named_parameters():
-            #     if param.requires_grad:
-            #         print(f"{name}: {param}")
-            #     else:
-            #         print(f"{name}: NO GRAD")
+            if use_joint_optimization:
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+            else:
+                policy_optimizer.zero_grad()
+                baseline_optimizer.zero_grad()
+                policy_loss.backward(retain_graph=True)
+                baseline_loss.backward()
+                policy_optimizer.step()
+                baseline_optimizer.step()
 
-            baseline_loss.backward()
-            log_gradient_norms(agent.baseline, "baseline", step_id)
-            clip_grad_norm_(agent.baseline.parameters(), max_norm = 1.0)
-            baseline_optimizer.step()
-            params_after = {name: param.clone() for name, param in agent.decoder.named_parameters() if param.requires_grad}
-            
-            # print("BOOOOOOYAAAAAAH")
-            # print(params_before["attn.in_proj_weight"])
-            # print("AFTERRRRRR")
-            # print(params_after["attn.in_proj_weight"])
-            # print(list(agent.decoder.parameters())[0].grad)
             
             ### MLflow logging
             avg_entropy = sum(entropies) / len(entropies)         
             final_node = agent.current_route[-1]
             goal_node = env.static_data.end_node
             reached_goal = int(final_node == goal_node)
-            total_travel_time = sum(env.step_travel_time_route) #+ sum([step['Waiting Time Penalty'] for step in env.])
+            total_travel_time = sum(env.step_travel_time_route)
             total_travel_time_including_waittime = total_travel_time + sum([step['Waiting Time Penalty'] for step in env.step_modifier_contributions])
             reward_modifier_contributions = [
                     {k: float(v) for k, v in step_contrib.items()}

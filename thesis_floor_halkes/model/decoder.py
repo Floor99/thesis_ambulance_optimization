@@ -24,30 +24,34 @@ class AttentionDecoder(nn.Module):
     def __init__(self, embed_dim, num_heads):
         super().__init__()
         self.embed_dim = embed_dim
-        self.project_context = nn.Linear(3*embed_dim, embed_dim)
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads)
+        self.project_context = nn.Linear(3 * embed_dim, embed_dim)
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
 
     def forward(self, 
                 context_vector, 
                 node_embeddings, 
-                invalid_action_mask: torch.Tensor | None = None):    
+                invalid_action_mask: torch.Tensor | None = None):
         
-        projected_query = self.project_context(context_vector).unsqueeze(0)  # [batch_size, embed_dim]
-        query = projected_query.unsqueeze(0) # reshape to [seq_length, batch_size, embed_dim] 
-        
-        valid_indices = (~invalid_action_mask).nonzero(as_tuple=True)[0]  # (k,)
-        valid_keys = node_embeddings[valid_indices].unsqueeze(1)        # (k, 1, d_h)
-        
-        
-        #TODO: check if this is correct
-        attn_output, attn_weights = self.attn(query, valid_keys, valid_keys, key_padding_mask=None) # [1, batch_size, n_nodes]
-        
-        logits = attn_weights.squeeze(0).squeeze(0).detach().clone().requires_grad_() # [n_nodes, ] 
-        
-        probs = F.softmax(logits, dim=-1)  
-        dist = torch.distributions.Categorical(probs)
-        sampled_idx = dist.sample()
-        action = valid_indices[sampled_idx].item()
+        # Prepare query from context vector
+        query = self.project_context(context_vector).unsqueeze(0).unsqueeze(0)  # [1, 1, embed_dim]
+
+        # Select only valid node embeddings
+        valid_indices = (~invalid_action_mask).nonzero(as_tuple=True)[0]       # [num_valid]
+        valid_keys = node_embeddings[valid_indices].clone().unsqueeze(0)               # [1, num_valid, embed_dim]
+
+        # Compute attention output (ignore weights for performance)
+        attn_output, _ = self.attn(query, valid_keys, valid_keys, need_weights=False)  # [1, 1, embed_dim]
+        attn_output = attn_output.squeeze(0).squeeze(0)                                 # [embed_dim]
+
+        # Compute scores for each valid node
+        scores = torch.matmul(valid_keys.squeeze(0), attn_output)  # [num_valid]
+        probs = F.softmax(scores, dim=-1)
+
+        # Sample action
+        dist = Categorical(probs)
+        sampled_idx = dist.sample()                                # scalar tensor
+        action = valid_indices[sampled_idx.item()].item()
         log_prob = dist.log_prob(sampled_idx)
         entropy = dist.entropy()
+
         return action, log_prob, entropy
