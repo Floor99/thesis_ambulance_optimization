@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from thesis_floor_halkes.model.encoders import CacheStaticEmbedding
-# from thesis_floor_halkes.model_dynamic_attention import FixedContext
 from thesis_floor_halkes.state import State
 
 
@@ -56,7 +55,6 @@ class DynamicAgent(Agent):
         self.penalties = []
         self.baseline_values = []
         self.embeddings = []
-        self.routes = [] # list with list of integers --> all routes of training session
         self.current_route = []
         self.entropies = []
         
@@ -86,7 +84,7 @@ class DynamicAgent(Agent):
             (static_embedding, dynamic_embedding), dim=1
         )                                                      
         
-        graph_embedding = final_embedding.mean(dim=0)#.detach()  # mean pooling over nodes
+        graph_embedding = final_embedding.mean(dim=0)
         
         self.embeddings.append({"static": static_embedding, 
                         "dynamic": dynamic_embedding, 
@@ -151,10 +149,13 @@ class DynamicAgent(Agent):
             returns.insert(0, R)
 
         returns = torch.tensor(returns)
+        returns = (returns - returns.mean()) / (returns.std() + 1e-6)
+
 
         if self.baseline is not None:
             baseline_values = torch.stack(self.baseline_values)
-            advantages = returns - baseline_values.detach()
+            advantages = returns - baseline_values
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
             baseline_loss = F.mse_loss(baseline_values, returns)
         else: 
             advantages = returns
@@ -163,9 +164,8 @@ class DynamicAgent(Agent):
         log_probs_tensor = torch.stack(self.action_log_probs)
         policy_loss = -(log_probs_tensor * advantages).mean()
         entropy_loss = torch.stack(self.entropies).mean()
-        policy_loss = policy_loss - 0.1 * entropy_loss
-        self.routes.append(self.current_route.copy())
-            
+        policy_loss = policy_loss - 0.01 * entropy_loss
+
         return policy_loss, baseline_loss
             
     def reset(self):
@@ -178,6 +178,7 @@ class DynamicAgent(Agent):
         self.embeddings.clear()
         self.cached_static = None
         self.current_route.clear()
+        self.entropies.clear()
         
     def backprop_model(self, optimizer, loss):
         optimizer.zero_grad()

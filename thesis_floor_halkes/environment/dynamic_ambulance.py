@@ -3,7 +3,6 @@ import torch
 from torch_geometric.data import Data, Dataset
 import pandas as pd
 import random
-from pprint import pprint
 
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter, RandomDynamicFeatureGetter
 from thesis_floor_halkes.features.static.getter import get_static_data_object
@@ -48,8 +47,6 @@ class DynamicEnvironment(Environment):
             max_start = max(0, T - 1 - self.max_steps)
             self.current_time_idx = random.randrange(0, max_start)
             self.start_timestamp = self.time_stamps[self.current_time_idx]
-        print(f"{self.start_timestamp= }")
-
         
         self.states = []
         init_state = self._get_state()
@@ -86,21 +83,9 @@ class DynamicEnvironment(Environment):
         
         # get static features
         static_features = self.static_data
-        print(f"{static_features.start_node= }")
-        # print(f"{static_features= }")
-        # print(f"{static_features.edge_attrs= }")
-        # print(f"{dynamic_features.x= }")
         
         # get valid actions
         valid_actions = self.get_valid_actions(self.adjecency_matrix, current_node, visited_nodes)
-        # print(f"{self.static_data.start_node= }, {self.static_data.end_node= }")
-        print(f"{self.static_data.end_node= }")
-        print(f"{current_node= }")
-        print(f"{visited_nodes= }")
-        print(f"{valid_actions= }")
-        print(f"{self.adjecency_matrix[current_node]= }")
-        for i in valid_actions:
-            print(f"{self.adjecency_matrix[i]= }")
         
         state = State(
             static_data=static_features,
@@ -143,7 +128,6 @@ class DynamicEnvironment(Environment):
             length_feature_idx=0, 
             speed_feature_idx=1
         )
-        print(f"{travel_time_edge= }")
 
         self.step_travel_time_route.append(travel_time_edge)
         
@@ -164,7 +148,6 @@ class DynamicEnvironment(Environment):
         
         self.modifier_contributions.update({"step": self.steps_taken})
         self.step_modifier_contributions.append(self.modifier_contributions)
-        print(f"{self.step_modifier_contributions= }")
         
         reward = - travel_time_edge + penalty
         
