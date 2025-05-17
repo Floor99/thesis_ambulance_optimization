@@ -16,6 +16,7 @@ class BatchedAmbulanceEnvDynamic:
       - start_nodes: LongTensor[B] of global start-node indices (use batch.ptr + per-graph local start)
       - end_nodes:   LongTensor[B] of global end-node indices
     """
+
     def __init__(
         self,
         batch: Batch,
@@ -32,13 +33,13 @@ class BatchedAmbulanceEnvDynamic:
         self.batch = batch
         self.edge_index = batch.edge_index
         self.edge_attr = batch.edge_attr
-        self.batch_vector = batch.batch        # maps each node to its graph in the batch
-        self.ptr = batch.ptr                  # index pointers for each graph
+        self.batch_vector = batch.batch  # maps each node to its graph in the batch
+        self.ptr = batch.ptr  # index pointers for each graph
         self.num_graphs = batch.num_graphs
         assert start_nodes.numel() == self.num_graphs
         assert end_nodes.numel() == self.num_graphs
         self.start_nodes = start_nodes.to(batch.x.device)
-        self.end_nodes   = end_nodes.to(batch.x.device)
+        self.end_nodes = end_nodes.to(batch.x.device)
         self.device = batch.x.device
 
         # Static features
@@ -82,32 +83,40 @@ class BatchedAmbulanceEnvDynamic:
         self.done = torch.zeros(self.num_graphs, dtype=torch.bool, device=self.device)
 
         # Sample dynamic features across all nodes
-        bits = torch.randint(0, 2, (self.traffic_lights.size(0),), dtype=torch.bool, device=self.device)
+        bits = torch.randint(
+            0, 2, (self.traffic_lights.size(0),), dtype=torch.bool, device=self.device
+        )
         self.light_status = bits & self.traffic_lights
-        self.waiting_times = torch.rand(self.traffic_lights.size(0), device=self.device) * self.max_wait
+        self.waiting_times = (
+            torch.rand(self.traffic_lights.size(0), device=self.device) * self.max_wait
+        )
 
         # Visited sets per graph (global indices)
-        self.visited = [ {int(self.current_nodes[i].item())} for i in range(self.num_graphs) ]
+        self.visited = [
+            {int(self.current_nodes[i].item())} for i in range(self.num_graphs)
+        ]
 
         return self._get_obs()
 
     def _get_obs(self):
         # Build the batched observation Data
-        x = torch.stack([
-            self.traffic_lights.to(torch.float),
-            self.light_status.to(torch.float),
-            self.waiting_times
-        ], dim=1)
-        
+        x = torch.stack(
+            [
+                self.traffic_lights.to(torch.float),
+                self.light_status.to(torch.float),
+                self.waiting_times,
+            ],
+            dim=1,
+        )
+
         # new
         obs_batch = Data(
             x=x,
             edge_index=self.edge_index,
             edge_attr=self.edge_attr,
-            batch=self.batch_vector,        # ← this is the crucial bit
+            batch=self.batch_vector,  # ← this is the crucial bit
         )
 
-        
         # Compute valid actions per graph
         valid_actions = []
         for i in range(self.num_graphs):
@@ -138,7 +147,9 @@ class BatchedAmbulanceEnvDynamic:
             # Validate action
             neighbors = [v for v, _ in self.adj[cur]]
             if action not in neighbors:
-                raise ValueError(f"Invalid action {action} in graph {i} from node {cur}.")
+                raise ValueError(
+                    f"Invalid action {action} in graph {i} from node {cur}."
+                )
             # Travel time
             eidx = next(idx for (v, idx) in self.adj[cur] if v == action)
             travel_t = float(self.edge_travel_times[eidx].item())
@@ -147,7 +158,7 @@ class BatchedAmbulanceEnvDynamic:
             if self.traffic_lights[action] and not self.light_status[action]:
                 wait_t = float(self.waiting_times[action].item())
             # Reward calc
-            r = - (travel_t + self.wait_weight * wait_t) / 10.0
+            r = -(travel_t + self.wait_weight * wait_t) / 10.0
             r -= self.step_penalty
             if action in self.visited[i]:
                 r -= self.revisit_penalty
@@ -156,9 +167,18 @@ class BatchedAmbulanceEnvDynamic:
             self.visited[i].add(action)
 
             # Re-sample dynamic features globally
-            bits = torch.randint(0, 2, (self.traffic_lights.size(0),), dtype=torch.bool, device=self.device)
+            bits = torch.randint(
+                0,
+                2,
+                (self.traffic_lights.size(0),),
+                dtype=torch.bool,
+                device=self.device,
+            )
             self.light_status = bits & self.traffic_lights
-            self.waiting_times = torch.rand(self.traffic_lights.size(0), device=self.device) * self.max_wait
+            self.waiting_times = (
+                torch.rand(self.traffic_lights.size(0), device=self.device)
+                * self.max_wait
+            )
 
             # Terminal checks
             if action == int(self.end_nodes[i].item()):

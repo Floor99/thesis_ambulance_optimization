@@ -5,6 +5,7 @@ from thesis_floor_halkes.action.base import Action
 from thesis_floor_halkes.environment.base import Environment
 # from thesis_floor_halkes.environment.dynamic_ambulance import AmbulanceEnvDynamic
 
+
 class RewardModifier(ABC):
     """
     Abstract base class for reward modifiers.
@@ -17,12 +18,13 @@ class RewardModifier(ABC):
     def __call__(self, **kwargs) -> float:
         pass
 
+
 class Penalty(RewardModifier):
     """
     Abstract base class for penalties.
     """
 
-    def __init__(self, name: str, penalty:float):
+    def __init__(self, name: str, penalty: float):
         self.name = name
         self.penalty = penalty
 
@@ -41,12 +43,13 @@ class Penalty(RewardModifier):
         """
         pass
 
+
 class Bonus(RewardModifier):
     """
     Abstract base class for bonuses.
     """
 
-    def __init__(self, name: str, bonus:float):
+    def __init__(self, name: str, bonus: float):
         self.name = name
         self.bonus = bonus
 
@@ -63,4 +66,4 @@ class Bonus(RewardModifier):
         Returns:
             The calculated bonus.
         """
-        pass     
+        pass

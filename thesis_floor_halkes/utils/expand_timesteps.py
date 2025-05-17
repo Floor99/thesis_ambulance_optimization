@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+
 def expand_wait_times(df, num_peaks=2, amp_frac=0.1, sigma=1.0):
     """
     Expand a DataFrame of 15-minute averaged wait_times into per-minute resolution
@@ -26,8 +27,8 @@ def expand_wait_times(df, num_peaks=2, amp_frac=0.1, sigma=1.0):
     """
     # Make a working copy and extract date
     df2 = df.copy()
-    df2['timestamp'] = pd.to_datetime(df2['timestamp'])
-    df2['date'] = df2['timestamp'].dt.date
+    df2["timestamp"] = pd.to_datetime(df2["timestamp"])
+    df2["date"] = df2["timestamp"].dt.date
 
     def expand_block(avg_k, avg_k1):
         t = np.arange(15)
@@ -56,33 +57,39 @@ def expand_wait_times(df, num_peaks=2, amp_frac=0.1, sigma=1.0):
     rows = []
 
     # Group by node and day to avoid crossing midnight
-    for (node, day), group in df2.groupby(['node_id', 'date']):
-        group = group.sort_values('timestamp').reset_index(drop=True)
+    for (node, day), group in df2.groupby(["node_id", "date"]):
+        group = group.sort_values("timestamp").reset_index(drop=True)
         for i, row in group.iterrows():
-            avg_k  = row['wait_time']
-            avg_k1 = group.loc[i+1, 'wait_time'] if i < len(group) - 1 else avg_k
-            start_ts = row['timestamp']
+            avg_k = row["wait_time"]
+            avg_k1 = group.loc[i + 1, "wait_time"] if i < len(group) - 1 else avg_k
+            start_ts = row["timestamp"]
             y = expand_block(avg_k, avg_k1)
 
             # build 15 per-minute rows
             for offset, wt in enumerate(y):
-                rows.append({
-                    'node_id':   node,
-                    'timestamp': start_ts + pd.Timedelta(minutes=offset),
-                    'wait_time': wt
-                })
+                rows.append(
+                    {
+                        "node_id": node,
+                        "timestamp": start_ts + pd.Timedelta(minutes=offset),
+                        "wait_time": wt,
+                    }
+                )
 
     # Assemble final DataFrame
     new_df = pd.DataFrame(rows)
-    new_df = new_df.sort_values(['node_id', 'timestamp']).reset_index(drop=True)
+    new_df = new_df.sort_values(["node_id", "timestamp"]).reset_index(drop=True)
 
     return new_df
 
 
 if __name__ == "__main__":
     # time_series = pd.read_parquet("data/processed/node_features.parquet")
-    time_series_filled_nan = pd.read_parquet("data/processed/node_features_filled_nan_average.parquet")
+    time_series_filled_nan = pd.read_parquet(
+        "data/processed/node_features_filled_nan_average.parquet"
+    )
     # mini_df = time_series[4800:(4800+96)]
-    new_df = expand_wait_times(time_series_filled_nan, num_peaks=3, amp_frac=0.1, sigma=1.5)
+    new_df = expand_wait_times(
+        time_series_filled_nan, num_peaks=3, amp_frac=0.1, sigma=1.5
+    )
     # print(new_df[1000:1050])
     new_df.to_parquet("data/processed/node_features_expanded.parquet")

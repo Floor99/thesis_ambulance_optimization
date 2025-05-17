@@ -36,18 +36,16 @@ class DynamicAgent(Agent):
         self.fixed_context = fixed_context
         self.baseline = baseline
         self.gamma = gamma
-        
+
         params = (
-            list(static_encoder.parameters()) +
-            list(dynamic_encoder.parameters()) +
-            list(decoder.parameters())
+            list(static_encoder.parameters())
+            + list(dynamic_encoder.parameters())
+            + list(decoder.parameters())
         )
-        
+
         if baseline is not None:
-            params += list(baseline.parameters()) # get_learnable_parameters() ?!
-        
-        
-        
+            params += list(baseline.parameters())  # get_learnable_parameters() ?!
+
         self.states = []  # list van states en dan telkens in select de laatste state pakken?
         self.actions = []
         self.action_log_probs = []
@@ -57,7 +55,7 @@ class DynamicAgent(Agent):
         self.embeddings = []
         self.current_route = []
         self.entropies = []
-        
+
     def _embed_graph(self, data, graph_type="static"):
         if graph_type == "static":
             x_static = data.x
@@ -75,51 +73,57 @@ class DynamicAgent(Agent):
         if self.cached_static is None:
             static_embedding = self._embed_graph(state.static_data, graph_type="static")
             self.cached_static = CacheStaticEmbedding(static_embedding)
-        else: 
+        else:
             static_embedding = self.cached_static.static_embedding
-        
+
         dynamic_embedding = self._embed_graph(state.dynamic_data, graph_type="dynamic")
-        
-        final_embedding = torch.cat(
-            (static_embedding, dynamic_embedding), dim=1
-        )                                                      
-        
+
+        final_embedding = torch.cat((static_embedding, dynamic_embedding), dim=1)
+
         graph_embedding = final_embedding.mean(dim=0)
-        
-        self.embeddings.append({"static": static_embedding, 
-                        "dynamic": dynamic_embedding, 
-                        "final": final_embedding,
-                        "graph": graph_embedding})
-        
+
+        self.embeddings.append(
+            {
+                "static": static_embedding,
+                "dynamic": dynamic_embedding,
+                "final": final_embedding,
+                "graph": graph_embedding,
+            }
+        )
+
         invalid_action_mask = self._get_action_mask(
             state.valid_actions, state.static_data.num_nodes
         )
-        
-        context_vector = self.fixed_context(final_node_embeddings=final_embedding,
-                                            current_idx=state.current_node,
-                                            end_idx=state.end_node)
-        
-        action, action_log_prob, entropy = self.decoder(
-            context_vector = context_vector,
-            node_embeddings = final_embedding,
-            invalid_action_mask = invalid_action_mask,
+
+        context_vector = self.fixed_context(
+            final_node_embeddings=final_embedding,
+            current_idx=state.current_node,
+            end_idx=state.end_node,
         )
-        
-        if not self.current_route: 
+
+        action, action_log_prob, entropy = self.decoder(
+            context_vector=context_vector,
+            node_embeddings=final_embedding,
+            invalid_action_mask=invalid_action_mask,
+        )
+
+        if not self.current_route:
             self.current_route.append(state.start_node)
-        
+
         self.current_route.append(action)
 
         return action, action_log_prob, entropy
-    
-    def _get_action_mask(self, valid_actions: list[int], num_nodes: int) -> torch.Tensor:
+
+    def _get_action_mask(
+        self, valid_actions: list[int], num_nodes: int
+    ) -> torch.Tensor:
         """
         Create a mask for valid actions.
         """
         action_mask = torch.ones(num_nodes, dtype=torch.bool)
         action_mask[valid_actions] = 0
         return action_mask
-    
+
     def store_baseline_value(self, baseline_value):
         self.baseline_values.append(baseline_value)
 
@@ -137,7 +141,7 @@ class DynamicAgent(Agent):
 
     def store_action_log_prob(self, log_prob):
         self.action_log_probs.append(log_prob)
-    
+
     def store_entropy(self, entropy):
         self.entropies.append(entropy)
 
@@ -151,23 +155,22 @@ class DynamicAgent(Agent):
         returns = torch.tensor(returns)
         returns = (returns - returns.mean()) / (returns.std() + 1e-6)
 
-
         if self.baseline is not None:
             baseline_values = torch.stack(self.baseline_values)
             advantages = returns - baseline_values
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
             baseline_loss = F.mse_loss(baseline_values, returns)
-        else: 
+        else:
             advantages = returns
             baseline_loss = 0
-        
+
         log_probs_tensor = torch.stack(self.action_log_probs)
         policy_loss = -(log_probs_tensor * advantages).mean()
         entropy_loss = torch.stack(self.entropies).mean()
         policy_loss = policy_loss - 0.01 * entropy_loss
 
         return policy_loss, baseline_loss
-            
+
     def reset(self):
         self.action_log_probs.clear()
         self.rewards.clear()
@@ -179,7 +182,7 @@ class DynamicAgent(Agent):
         self.cached_static = None
         self.current_route.clear()
         self.entropies.clear()
-        
+
     def backprop_model(self, optimizer, loss):
         optimizer.zero_grad()
         loss.backward()
