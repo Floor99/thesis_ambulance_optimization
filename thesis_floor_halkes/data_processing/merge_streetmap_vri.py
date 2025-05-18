@@ -97,7 +97,7 @@ gdf_nodes["wait_time"] = gdf_lights.iloc[
     gdf_nodes["nearest_light_idx"]
 ].wait_time.values
 
-# 5) apply your 10 m threshold
+# 5) apply your threshold
 threshold = 25  # meters
 mask = gdf_nodes["distance_m"] <= threshold
 gdf_nodes.loc[~mask, ["tlc_name", "wait_time"]] = 0

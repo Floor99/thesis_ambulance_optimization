@@ -89,6 +89,28 @@ class WaitTimePenalty(Penalty):
         if has_light and not status:
             return -wait_time
         return 0.0
+    
+
+class NoSignalIntersectionPenalty(Penalty):
+    def __init__(self, name: str, penalty: float = None):
+        super().__init__(name, penalty)
+        
+    def __call__(self, **kwargs) -> float:
+        has_light_idx = kwargs.get("has_light_idx")
+        environment = kwargs.get("environment", Environment)
+        current_node = kwargs.get("current_node", int)
+        
+        degree = len(environment.adjecency_matrix[current_node])
+        print(f"Degree: {degree}")
+        if degree < 3:
+            return 0.0
+
+        has_light = environment.states[-1].static_data.x[current_node, has_light_idx].item()
+        if not has_light:
+            return self.penalty
+        return 0.0
+
+
         
         
 class GoalBonus(Bonus):

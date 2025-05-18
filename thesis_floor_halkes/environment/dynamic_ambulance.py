@@ -5,7 +5,6 @@ import pandas as pd
 import random
 
 from thesis_floor_halkes.features.dynamic.getter import (
-    DynamicFeatureGetter,
     RandomDynamicFeatureGetter,
 )
 from thesis_floor_halkes.features.static.getter import get_static_data_object
@@ -139,7 +138,6 @@ class DynamicEnvironment(Environment):
         self.current_time_idx += 1  # bounds by end timestamp toevoegen!
 
         new_state = self._get_state(action)
-
         self.states.append(new_state)
 
         # Check if action is valid

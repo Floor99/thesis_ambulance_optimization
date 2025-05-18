@@ -113,30 +113,101 @@ def get_node_features_subgraph(G_sub):
     return nodes
 
 
-def clean_numeric(val, default=50.0):
-    if isinstance(val, list):
-        val = val[0]  # If it's a list, pick the first value
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return default
+# def clean_numeric(val, default=50.0):
+#     if isinstance(val, list):
+#         val = val[0]  # If it's a list, pick the first value
+#     try:
+#         return float(val)
+#     except (ValueError, TypeError):
+#         return default
 
+
+# def get_edge_features_subgraph(G_sub):
+#     G_sub = nx.convert_node_labels_to_integers(G_sub, ordering="sorted", first_label=0)
+#     _, edges = ox.graph_to_gdfs(G_sub)
+#     print(f"{edges= }")
+
+#     edges = edges[["maxspeed", "length", "geometry"]]
+#     edges["maxspeed"] = edges["maxspeed"].apply(
+#         lambda x: clean_numeric(x, default=50.0)
+#     )
+#     edges["length"] = edges["length"].apply(
+#         lambda x: clean_numeric(x, default=30.0)
+#     )  # 30m as a reasonable default)
+#     edges["maxspeed"] = edges["maxspeed"].fillna(50.0)
+#     edges["length"] = edges["length"].fillna(30.0)
+#     return edges
+
+
+def parse_speed(maxspeed, highway):
+    """
+    Turn maxspeed into a float based on:
+      - if maxspeed is a list -> 30.0
+      - elif convertible to float (and not NaN) -> that float
+      - elif highway in defaults -> mapping
+      - else -> fallback_speed
+    """
+    speed_defaults = {
+        "primary":      80.0,
+        "secondary":    70.0,
+        "tertiary":     50.0,
+        "residential":  30.0,
+        "unclassified": 30.0,
+    }
+    fallback_speed = 50.0
+
+    # list of speeds => fixed 30
+    if isinstance(maxspeed, list):
+        return 30.0
+    # try numeric conversion
+    try:
+        val = float(maxspeed)
+        # check for NaN: NaN != NaN
+        if val == val:
+            return val
+    except (TypeError, ValueError):
+        pass
+    # fallback based on highway type or overall fallback
+    return speed_defaults.get(highway, fallback_speed)
+    
+def parse_length(length):
+    """
+    Turn length (which may be a list, str, number or None) into a float,
+    defaulting to 30 m on failure.
+    """
+    fall_back_length = 30.0
+    
+    if isinstance(length, list):
+        length = length[0]
+    try:
+        return float(length)
+    except (TypeError, ValueError):
+        return fall_back_length
 
 def get_edge_features_subgraph(G_sub):
-    G_sub = nx.convert_node_labels_to_integers(G_sub, ordering="sorted", first_label=0)
-    _, edges = ox.graph_to_gdfs(G_sub)
-    print(f"{edges= }")
+    """
+    From subgraph G_sub, return an edges GeoDataFrame with:
+      - maxspeed: float (km/h)
+      - length:   float (m)
+      - geometry: the edge geometries
+    """
+    # relabel nodes for consistency
+    G0 = nx.convert_node_labels_to_integers(G_sub, ordering="sorted", first_label=0)
+    # extract edges gdf
+    _, edges = ox.graph_to_gdfs(G0)
 
-    edges = edges[["maxspeed", "length", "geometry"]]
-    edges["maxspeed"] = edges["maxspeed"].apply(
-        lambda x: clean_numeric(x, default=50.0)
+    # apply parsers
+    edges["maxspeed"] = edges.apply(
+        lambda row: parse_speed(row.get("maxspeed"), row.get("highway")),
+        axis=1,
     )
-    edges["length"] = edges["length"].apply(
-        lambda x: clean_numeric(x, default=30.0)
-    )  # 30m as a reasonable default)
-    edges["maxspeed"] = edges["maxspeed"].fillna(50.0)
-    edges["length"] = edges["length"].fillna(30.0)
-    return edges
+    edges["length"] = edges["length"].apply(parse_length)
+
+    # ensure floats
+    edges["maxspeed"] = edges["maxspeed"].astype(float)
+    edges["length"]   = edges["length"].astype(float)
+
+    return edges[["maxspeed", "length"]]
 
 
 def plot_with_route(G_sub, G_pt, route=None, ax=None, goal_node=None):
@@ -205,6 +276,8 @@ def plot_with_route(G_sub, G_pt, route=None, ax=None, goal_node=None):
     )
 
     ax.legend()
+    
+    
 
     return fig, ax
 
@@ -215,5 +288,9 @@ if __name__ == "__main__":
     )
     print(f"{G_sub= }")
 
-    get_node_features_subgraph(G_sub)
-    get_edge_features_subgraph(G_sub)
+    plot_with_route(
+        G_sub,
+        G_pt,
+        route=[0, 1, 2],
+        goal_node=2,
+    )

@@ -18,8 +18,8 @@ class DynamicAgent(Agent):
         decoder: nn.Module,
         fixed_context: nn.Module,
         baseline: nn.Module = None,
-        lr: float = 1e-3,
         gamma: float = 0.8,
+        entropy_coeff: float = 0.01,
     ):
         """
         Initialize the dynamic agent with static and dynamic encoders and a decoder.
@@ -36,6 +36,7 @@ class DynamicAgent(Agent):
         self.fixed_context = fixed_context
         self.baseline = baseline
         self.gamma = gamma
+        self.entropy_coeff = entropy_coeff
 
         params = (
             list(static_encoder.parameters())
@@ -151,11 +152,8 @@ class DynamicAgent(Agent):
         for r in reversed(self.rewards):
             R = r + self.gamma * R
             returns.insert(0, R)
-        print(f"Returns: {returns}")
         returns = torch.tensor(returns)
-        print(f"Returns tensor: {returns}")
         returns = (returns - returns.mean()) / (returns.std() + 1e-6)
-        # print(f"Normalized returns: {returns}")
         if self.baseline is not None:
             baseline_values = torch.stack(self.baseline_values)
             advantages = returns - baseline_values
@@ -164,19 +162,13 @@ class DynamicAgent(Agent):
         else:
             print("No baseline model provided. Using returns as advantages.")
             advantages = returns
-            print(f"Advantages: {advantages}")
             baseline_loss = 0
 
         log_probs_tensor = torch.stack(self.action_log_probs)
-        print(f"self.action_log_probs: {self.action_log_probs}")
-        print(f"Log probs tensor: {log_probs_tensor}")
         policy_loss = -(log_probs_tensor * advantages)
-        print(f"Policy loss: {policy_loss}")
         policy_loss = -(log_probs_tensor * advantages).mean()
-        print(f"Policy loss mean: {policy_loss}")
         entropy_loss = torch.stack(self.entropies).mean()
-        print(f"Entropy loss: {entropy_loss}")
-        policy_loss = policy_loss - 0.1 * entropy_loss
+        policy_loss = policy_loss - self.entropy_coeff * entropy_loss
 
         return policy_loss, baseline_loss
 

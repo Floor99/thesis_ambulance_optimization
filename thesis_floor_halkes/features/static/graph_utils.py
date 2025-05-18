@@ -32,6 +32,28 @@ def create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, timeseries_df):
 
     return G_sub, G_pt
 
+def create_osmnx_sub_graph_only_inside_helmond_from_bbox(left, bottom, right, up, timeseries_df):
+    unique_timeseries = (
+        timeseries_df.loc[:, ["node_id", "lat", "lon"]]
+        .drop_duplicates(subset=["node_id"])
+        .set_index("node_id")
+    )
+
+    G_pt = ox.graph_from_bbox(
+        (left, bottom, right, up),
+        network_type="drive",
+        simplify=True,
+        retain_all=False)
+
+    common_nodes = set(G_pt.nodes()).intersection(unique_timeseries.index)
+
+    G_sub = G_pt.subgraph(common_nodes).copy()
+
+    largest_connected_component = max(nx.weakly_connected_components(G_sub), key=len)
+    G_sub = G_sub.subgraph(largest_connected_component).copy()
+
+    return G_sub, G_pt
+
 
 def plot_sub_graph_in_and_out_nodes_helmond(G_sub, G_pt):
     # split nodes into inside vs. outside
@@ -82,7 +104,6 @@ def get_node_features_subgraph(G_sub):
     nodes, _ = ox.graph_to_gdfs(G_sub)
     nodes = nodes[["y", "x"]].reset_index(names="node_id")
     nodes = nodes.rename(columns={"y": "lat", "x": "lon"})
-    print(f"{nodes= }")
     return nodes
 
 
@@ -108,14 +129,15 @@ def get_edge_features_subgraph(G_sub):
     )  # 30m as a reasonable default)
     edges["maxspeed"] = edges["maxspeed"].fillna(50.0)
     edges["length"] = edges["length"].fillna(30.0)
-    print(f"{edges= }")
     return edges
 
 
-G_sub, G_pt = create_osmnx_sub_graph_only_inside_helmond(
-    51.473609, 5.738671, 1000, timeseries_df
-)
-print(f"{G_sub= }")
 
-get_node_features_subgraph(G_sub)
-get_edge_features_subgraph(G_sub)
+if __name__ == "__main__":
+    G_sub, G_pt = create_osmnx_sub_graph_only_inside_helmond(
+        51.473609, 5.738671, 1000, timeseries_df
+    )
+    print(f"{G_sub= }")
+
+    get_node_features_subgraph(G_sub)
+    get_edge_features_subgraph(G_sub)

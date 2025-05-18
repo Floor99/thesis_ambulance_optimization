@@ -103,6 +103,8 @@ class DynamicFeatureGetterDataFrame(DynamicFeatureGetter):
         has_light = environment.static_data.x[:, traffic_light_idx].bool()
         rand_bits = torch.randint(0, 2, (num_nodes,), dtype=torch.bool)
         light_status = (rand_bits & has_light).to(torch.float)
+        # set light status to red
+        light_status[~has_light] = 0.0
 
         is_current_node = torch.zeros(num_nodes)
         is_current_node[current_node] = 1.0

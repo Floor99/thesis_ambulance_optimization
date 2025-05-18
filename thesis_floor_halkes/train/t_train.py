@@ -1,7 +1,9 @@
 import json
 import random
+import hydra
 from matplotlib import pyplot as plt
 import numpy as np
+from omegaconf import DictConfig
 import pandas as pd
 import torch
 import mlflow
@@ -24,6 +26,7 @@ from thesis_floor_halkes.penalties.revisit_node_penalty import (
     DeadEndPenalty,
     GoalBonus,
     HigherSpeedBonus,
+    NoSignalIntersectionPenalty,
     PenaltyPerStep,
     RevisitNodePenalty,
     WaitTimePenalty,
@@ -44,284 +47,347 @@ from thesis_floor_halkes.utils.plot_graph import plot_graph
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print(f"Using device: {device}")
 
-os.makedirs("checkpoints", exist_ok=True)
-ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
-mlflow.set_experiment("dynamic_ambulance_training")
 
-
-# ==== Load the static dataset ====
-dataset = StaticListDataset(
-    ts_path="data/processed/node_features.parquet",
-    seeds=[0, 1, 2, 3, 4],
-    dists=[200, 300, 400, 500, 600],  # each graph has its own radius
-)
-
-dynamic_node_idx = {'status': 0,
-               'wait_time': 1,
-               'current_node': 2,
-               'visited_nodes': 3,}
-
-static_node_idx = {'lat': 0,
-                   'lon': 1,
-                   'has_light': 2,
-                   'dist_to_goal': 3,}
-
-static_edge_idx = {'length': 0,
-                   'speed': 1,}
-
-# dataset = [get_static_data_object(
-#     time_series_df_path="data/processed/node_features.parquet",
-#     dist = 1000,
-#     seed = 42)]
-
-# ==== Reward Modifiers ====
-revisit_penalty = RevisitNodePenalty(name="Revisit Node Penalty", penalty=-50.0)
-penalty_per_step = PenaltyPerStep(name="Penalty Per Step", penalty=-5)
-goal_bonus = GoalBonus(name="Goal Bonus", bonus=100.0)
-dead_end_penalty = DeadEndPenalty(name="Dead End Penalty", penalty=-100.0)
-waiting_time_penalty = WaitTimePenalty(name="Waiting Time Penalty")
-higher_speed_bonus = HigherSpeedBonus(name="Higher Speed Bonus", bonus=20.0)
-aggregated_step_penalty = AggregatedStepPenalty(
-    name="Aggregated Step Penalty", penalty=-10.0
-)
-closer_to_goal_bonus = CloserToGoalBonus(name="Closer To Goal Bonus", bonus=1.0)
-
-reward_modifier_calculator = RewardModifierCalculator(
-    modifiers=[
-        revisit_penalty,
-        penalty_per_step,
-        goal_bonus,
-        waiting_time_penalty,
-        dead_end_penalty,
-        higher_speed_bonus,
-        closer_to_goal_bonus,
-    ],
-    weights=[
-        1.0,
-        1.0,
-        2.0,
-        1.0,
-        1.0,
-        1.0,
-        1.0,
-    ],
-)
-
-# ==== Environment and Agent ====
-env = DynamicEnvironment(
-    static_dataset=dataset,
-    dynamic_feature_getter=DynamicFeatureGetterDataFrame(),
-    reward_modifier_calculator=reward_modifier_calculator,
-    max_steps=30,
-    # start_timestamp = '2024-01-31 08:30:00',
-    dynamic_node_idx=dynamic_node_idx,
-    static_node_idx=static_node_idx,
-    static_edge_idx=static_edge_idx,
-)
-
-hidden_size = 64
-input_dim = hidden_size * 2
-learning_rate = 0.001
-num_epochs = 500
-
-static_encoder = StaticGATEncoder(
-    in_channels=4, hidden_size=hidden_size, edge_attr_dim=2, num_layers=4
-)
-dynamic_encoder = DynamicGATEncoder(
-    in_channels=4, hidden_size=hidden_size, num_layers=4
-)
-decoder = AttentionDecoder(embed_dim=hidden_size * 2, num_heads=4)
-fixed_context = FixedContext(embed_dim=hidden_size * 2)
-baseline = CriticBaseline(hidden_size * 2, hidden_dim=128)
-
-gamma = 0.99
-agent = DynamicAgent(
-    static_encoder=static_encoder,
-    dynamic_encoder=dynamic_encoder,
-    decoder=decoder,
-    fixed_context=fixed_context,
-    baseline=baseline,
-    gamma=gamma,
-)
-
-use_joint_optimization = True  # or False
-baseline_weight = 0.0001 if baseline is not None else 0.0
-
-if use_joint_optimization and baseline is not None:
-    # One optimizer for all trainable components
-    optimizer = torch.optim.Adam(
-        list(agent.static_encoder.parameters())
-        + list(agent.dynamic_encoder.parameters())
-        + list(agent.decoder.parameters())
-        + list(agent.baseline.parameters()),
-        lr=learning_rate,
-    )
-else:
-    # Separate optimizers
-    policy_optimizer = torch.optim.Adam(
-        list(agent.static_encoder.parameters())
-        + list(agent.dynamic_encoder.parameters())
-        + list(agent.decoder.parameters()),
-        lr=learning_rate,
-    )
-    if baseline is not None:
-        baseline_optimizer = torch.optim.Adam(agent.baseline.parameters(), lr=learning_rate)
-
-
-policy_parameters = [
-    {"params": agent.static_encoder.parameters()},
-    {"params": agent.dynamic_encoder.parameters()},
-    {"params": agent.decoder.parameters()},
-]
-if baseline is not None:
-    baseline_parameters = [
-        {"params": agent.baseline.parameters()},
-    ]
-
-logger = RewardLogger(smooth_window=20)
 torch.autograd.set_detect_anomaly(True)
 
+
 # ==== Training Loop with MLFlow Tracking ====
-with mlflow.start_run():
-    mlflow.log_params(
-        {
-            "learning_rate": learning_rate,
-            "hidden_size": hidden_size,
-            "max_steps": env.max_steps,
-            "num_epochs": num_epochs,
-            "decoder_type": "AttentionDecoder",
-            "encoder_type": "GATEncoder",
-        }
+@hydra.main(config_path="../conf", config_name="config", version_base=None)
+def main(cfg: DictConfig):
+    os.makedirs("checkpoints", exist_ok=True)
+    ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
+    mlflow.set_experiment("dynamic_ambulance_training")
+
+    # ==== Load the static dataset ====
+    # dataset = StaticListDataset(
+    #     ts_path="data/processed/node_features.parquet",
+    #     # seeds=[0, 1, 2, 3, 4],
+    #     seeds=[5, 6, 7, 8, 9],
+    #     dists=[200, 300, 400, 500, 600],  # each graph has its own radius
+    # )
+
+    dynamic_node_idx = {
+        "status": 0,
+        "wait_time": 1,
+        "current_node": 2,
+        "visited_nodes": 3,
+    }
+
+    static_node_idx = {
+        "lat": 0,
+        "lon": 1,
+        "has_light": 2,
+        "dist_to_goal": 3,
+    }
+
+    static_edge_idx = {
+        "length": 0,
+        "speed": 1,
+    }
+
+    dataset = [
+        get_static_data_object(
+            time_series_df_path="data/processed/node_features.parquet",
+            # dist = 1000,
+            seed=1,
+        )
+    ]
+
+    # ==== Reward Modifiers ====
+    revisit_penalty = RevisitNodePenalty(
+        name="Revisit Node Penalty", penalty=cfg.reward_mod.revisit_penalty_value
+    )
+    penalty_per_step = PenaltyPerStep(
+        name="Penalty Per Step", penalty=cfg.reward_mod.penalty_per_step_value
+    )
+    goal_bonus = GoalBonus(name="Goal Bonus", bonus=cfg.reward_mod.goal_bonus_value)
+    dead_end_penalty = DeadEndPenalty(
+        name="Dead End Penalty", penalty=cfg.reward_mod.dead_end_penalty_value
+    )
+    waiting_time_penalty = WaitTimePenalty(name="Waiting Time Penalty")
+    higher_speed_bonus = HigherSpeedBonus(
+        name="Higher Speed Bonus", bonus=cfg.reward_mod.higher_speed_bonus_value
+    )
+    aggregated_step_penalty = AggregatedStepPenalty(
+        name="Aggregated Step Penalty", penalty=cfg.reward_mod.aggregated_step_penalty_value
+    )
+    closer_to_goal_bonus = CloserToGoalBonus(
+        name="Closer To Goal Bonus", bonus=cfg.reward_mod.closer_to_goal_bonus_value
+    )
+    no_signal_intersection_penalty = NoSignalIntersectionPenalty(
+        name="No Signal Intersection Penalty", penalty=cfg.reward_mod.no_signal_intersection_penalty_value
     )
 
-    for epoch in range(num_epochs):
-        print(f"Epoch {epoch + 1}/{num_epochs}")
-        episode_infos = []
+    reward_modifier_calculator = RewardModifierCalculator(
+        modifiers=[
+            revisit_penalty,
+            penalty_per_step,
+            goal_bonus,
+            waiting_time_penalty,
+            dead_end_penalty,
+            higher_speed_bonus,
+            closer_to_goal_bonus,
+            no_signal_intersection_penalty,
+        ],
+        weights=[
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+        ],
+    )
 
-        for graph_idx, static_data in enumerate(dataset):
-            if graph_idx == 2:
-                break
-            env.static_data = static_data
-            total_reward = 0
-            state = env.reset()
-            entropies = []
+    # ==== Environment and Agent ====
+    env = DynamicEnvironment(
+        static_dataset=dataset,
+        dynamic_feature_getter=DynamicFeatureGetterDataFrame(),
+        reward_modifier_calculator=reward_modifier_calculator,
+        max_steps=cfg.training.max_steps,
+        start_timestamp="2024-01-31 08:30:00",
+        dynamic_node_idx=dynamic_node_idx,
+        static_node_idx=static_node_idx,
+        static_edge_idx=static_edge_idx,
+    )
 
-            for step in range(env.max_steps):
-                action, action_log_prob, entropy = agent.select_action(state)
-                entropies.append(entropy.item())
+    encoder_output_dim = cfg.stat_enc.out_size
+    static_encoder = StaticGATEncoder(
+        in_channels=4,
+        hidden_size=cfg.stat_enc.hidden_size,
+        edge_attr_dim=2,
+        num_layers=cfg.stat_enc.num_layers,
+        heads=cfg.stat_enc.num_heads,
+        dropout=cfg.stat_enc.dropout,
+        out_size=encoder_output_dim,
+    )
+    dynamic_encoder = DynamicGATEncoder(
+        in_channels=4,
+        hidden_size=cfg.dyn_enc.hidden_size,
+        num_layers=cfg.dyn_enc.num_layers,
+        heads=cfg.dyn_enc.num_heads,
+        dropout=cfg.dyn_enc.dropout,
+        out_size=encoder_output_dim,
+    )
+    
+    decoder = AttentionDecoder(embed_dim=encoder_output_dim * 2, num_heads=cfg.decoder.num_heads)
+    fixed_context = FixedContext(embed_dim=encoder_output_dim * 2)
+    baseline = CriticBaseline(encoder_output_dim * 2, hidden_dim=cfg.baseline.hidden_size)
+    
+    gamma = cfg.reinforce.discount_factor
+    agent = DynamicAgent(
+        static_encoder=static_encoder,
+        dynamic_encoder=dynamic_encoder,
+        decoder=decoder,
+        fixed_context=fixed_context,
+        baseline=baseline,
+        gamma=gamma,
+        entropy_coeff=cfg.reinforce.entropy_coeff,
+    )
 
-                if baseline is not None:
-                    embedding = agent.embeddings[-1]["final"]
-                    embedding_for_critic = embedding.detach()
-                    baseline_value = agent.baseline(embedding_for_critic)
+    use_joint_optimization = True  # or False
+    baseline_weight = cfg.reinforce.baseline_loss_coeff if baseline is not None else 0.0
 
-                new_state, reward, terminated, truncated, _ = env.step(action)
+    if use_joint_optimization and baseline is not None:
+        # One optimizer for all trainable components
+        optimizer = torch.optim.Adam(
+            [
+            {"params": agent.static_encoder.parameters(), "lr": cfg.stat_enc.learning_rate},
+            {"params": agent.dynamic_encoder.parameters(), "lr": cfg.dyn_enc.learning_rate},
+            {"params": agent.decoder.parameters(), "lr": cfg.decoder.learning_rate},
+            {"params": agent.baseline.parameters(), "lr": cfg.baseline.learning_rate},
+            ]
+        )
+    else:
+        # Separate optimizers
+        policy_optimizer = torch.optim.Adam(
+            [
+            {"params": agent.static_encoder.parameters(), "lr": cfg.stat_enc.learning_rate},
+            {"params": agent.dynamic_encoder.parameters(), "lr": cfg.dyn_enc.learning_rate},
+            {"params": agent.decoder.parameters(), "lr": cfg.decoder.learning_rate},
+            ]
+        )
+        if baseline is not None:
+            baseline_optimizer = torch.optim.Adam(
+                agent.baseline.parameters(), lr=cfg.baseline.learning_rate
+            )
 
-                agent.store_state(new_state)
-                agent.store_action_log_prob(action_log_prob)
-                agent.store_action(action)
-                agent.store_reward(reward)
-                if baseline is not None:
-                    agent.store_baseline_value(baseline_value)
-                agent.store_entropy(entropy)
 
-                total_reward += reward
-                state = new_state
+    # logger = RewardLogger(smooth_window=20)
 
-                if terminated or truncated:
+    with mlflow.start_run():
+        # mlflow.log_params(
+        #     {
+        #         "learning_rate": learning_rate,
+        #         "hidden_size": hidden_size,
+        #         "max_steps": env.max_steps,
+        #         "num_epochs": num_epochs,
+        #         "decoder_type": "AttentionDecoder",
+        #         "encoder_type": "GATEncoder",
+        #     }
+        # )
+
+        success_history = []
+        rolling_window = 20
+
+        num_epochs = cfg.training.num_epochs
+        for epoch in range(num_epochs):
+            print(f"Epoch {epoch + 1}/{num_epochs}")
+
+            for graph_idx, static_data in enumerate(dataset):
+                if graph_idx == 5:
                     break
+                env.static_data = static_data
+                total_reward = 0
+                state = env.reset()
+                entropies = []
 
-            step_id = epoch * len(dataset.data_list) + graph_idx
+                for step in range(env.max_steps):
+                    action, action_log_prob, entropy = agent.select_action(state)
+                    entropies.append(entropy.item())
 
-            policy_loss, baseline_loss = agent.finish_episode()
-            total_loss = policy_loss + (baseline_weight * baseline_loss)
+                    if baseline is not None:
+                        embedding = agent.embeddings[-1]["final"]
+                        embedding_for_critic = embedding.detach()
+                        baseline_value = agent.baseline(embedding_for_critic)
 
-            if use_joint_optimization and baseline is not None:
-                optimizer.zero_grad()
-                total_loss.backward()
-                optimizer.step()
-            else:
-                policy_optimizer.zero_grad()
-                if baseline is not None:
-                    baseline_optimizer.zero_grad()
-                    policy_loss.backward(retain_graph=True)
-                    baseline_loss.backward()
-                    policy_optimizer.step()
-                    baseline_optimizer.step()
+                    new_state, reward, terminated, truncated, _ = env.step(action)
+                    print(f"Action: {action}")
+
+                    print(f"new state static: {new_state.static_data.x[action]}")
+                    print(f"new state dynamic: {new_state.dynamic_data.x[action]}")
+
+                    agent.store_state(new_state)
+                    agent.store_action_log_prob(action_log_prob)
+                    agent.store_action(action)
+                    agent.store_reward(reward)
+                    if baseline is not None:
+                        agent.store_baseline_value(baseline_value)
+                    agent.store_entropy(entropy)
+
+                    total_reward += reward
+                    state = new_state
+
+                    if terminated or truncated:
+                        break
+
+                    if action == 59:
+                        break
+
+                # step_id = epoch * len(dataset.data_list) + graph_idx
+                step_id = epoch * len(dataset) + graph_idx
+
+                policy_loss, baseline_loss = agent.finish_episode()
+                total_loss = policy_loss + (baseline_weight * baseline_loss)
+
+                if use_joint_optimization and baseline is not None:
+                    optimizer.zero_grad()
+                    total_loss.backward()
+                    optimizer.step()
                 else:
-                    policy_loss.backward()
-                    policy_optimizer.step()
+                    policy_optimizer.zero_grad()
+                    if baseline is not None:
+                        baseline_optimizer.zero_grad()
+                        policy_loss.backward(retain_graph=True)
+                        baseline_loss.backward()
+                        policy_optimizer.step()
+                        baseline_optimizer.step()
+                    else:
+                        policy_loss.backward()
+                        policy_optimizer.step()
 
-            ### MLflow logging
-            avg_entropy = sum(entropies) / len(entropies)
-            final_node = agent.current_route[-1]
-            goal_node = env.static_data.end_node
-            reached_goal = int(final_node == goal_node)
-            total_travel_time = sum(env.step_travel_time_route)
-            total_travel_time_including_waittime = total_travel_time + sum(
-                [
-                    step["Waiting Time Penalty"]
-                    for step in env.step_modifier_contributions
+                ### MLflow logging
+                avg_entropy = sum(entropies) / len(entropies)
+                final_node = agent.current_route[-1]
+                goal_node = env.static_data.end_node
+                reached_goal = int(final_node == goal_node)
+                total_travel_time = sum(env.step_travel_time_route)
+                total_travel_time_including_waittime = total_travel_time + sum(
+                    [
+                        step["Waiting Time Penalty"]
+                        for step in env.step_modifier_contributions
+                    ]
+                )
+                # total_total_travel_time = total_travel_time_including_waittime + sum(
+                #     [
+                #         step["No Signal Intersection Penalty"]
+                #     ]
+                # )
+                reward_modifier_contributions = [
+                    {k: float(v) for k, v in step_contrib.items()}
+                    for step_contrib in env.step_modifier_contributions
                 ]
-            )
-            reward_modifier_contributions = [
-                {k: float(v) for k, v in step_contrib.items()}
-                for step_contrib in env.step_modifier_contributions
-            ]
 
-            episode_info = {
-                "epoch": int(epoch),
-                "graph_idx": int(graph_idx),
-                "start_time": str(env.start_timestamp),
-                "start_node": int(env.static_data.start_node),
-                "end_node": int(env.static_data.end_node),
-                "reached_goal": int(reached_goal),
-                "total_travel_time": float(total_travel_time),
-                "total_travel_time_including_waittime": float(
-                    total_travel_time_including_waittime
-                ),
-                "total_reward": float(total_reward),
-                "avg_entropy": float(avg_entropy),
-                "policy_loss": float(policy_loss.item()),
-                "baseline_loss": float(baseline_loss.item()) if baseline else 0,
-                "route": [int(n) for n in agent.current_route],
-                "reward_modifier_contributions": reward_modifier_contributions,
-            }
+                if reached_goal == 1:
+                    success_history.append(1)
+                else:
+                    success_history.append(0)
 
-            orig_ids_route = [
-                env.static_data.node_id_mapping[i] for i in agent.current_route
-            ]
-            route = np.array(orig_ids_route).tolist()
-            fig, _ = plot_with_route(
-                env.static_data.G_sub,
-                env.static_data.G_pt,
-                route,
-                goal_node=env.static_data.node_id_mapping[goal_node],
-            )
+                if len(success_history) >= rolling_window:
+                    success_rate = np.mean(success_history[-rolling_window:] * 100)
+                    mlflow.log_metric("success_rate", success_rate, step=step_id)
 
-            # Log the metrics
-            mlflow.log_metrics(
-                {
-                    "reward": total_reward,
-                    "policy_loss": policy_loss.item(),
-                    "baseline_loss": baseline_loss.item() if baseline else 0,
-                    "total_loss": total_loss.item(),
-                    "avg_entropy": avg_entropy,
-                    "reached_goal": reached_goal,
-                    "total_travel_time": total_travel_time,
-                },
-                step=epoch * len(dataset) + graph_idx,
-            )
+                episode_info = {
+                    "epoch": int(epoch),
+                    "graph_idx": int(graph_idx),
+                    "start_time": str(env.start_timestamp),
+                    "start_node": int(env.static_data.start_node),
+                    "end_node": int(env.static_data.end_node),
+                    "reached_goal": int(reached_goal),
+                    "total_travel_time": float(total_travel_time),
+                    "total_travel_time_including_waittime": float(
+                        total_travel_time_including_waittime
+                    ),
+                    # "total_total_travel_time": float(total_total_travel_time),
+                    "total_reward": float(total_reward),
+                    "avg_entropy": float(avg_entropy),
+                    "policy_loss": float(policy_loss.item()),
+                    "baseline_loss": float(baseline_loss.item()) if baseline else 0,
+                    "route": [int(n) for n in agent.current_route],
+                    "reward_modifier_contributions": reward_modifier_contributions,
+                }
 
-            # Log artifacts
-            log_episode_artifacts(episode_info, epoch, graph_idx, fig)
+                orig_ids_route = [
+                    env.static_data.node_id_mapping[i] for i in agent.current_route
+                ]
+                route = np.array(orig_ids_route).tolist()
+                fig, _ = plot_with_route(
+                    env.static_data.G_sub,
+                    env.static_data.G_pt,
+                    route,
+                    goal_node=env.static_data.node_id_mapping[goal_node],
+                )
 
-            ### Reset agent and environment for next episode
-            agent.reset()
-            env.reward_modifier_calculator.reset()
+                # Log the metrics
+                mlflow.log_metrics(
+                    {
+                        "reward": total_reward,
+                        "policy_loss": policy_loss.item(),
+                        "baseline_loss": baseline_loss.item() if baseline else 0,
+                        "total_loss": total_loss.item(),
+                        "avg_entropy": avg_entropy,
+                        "reached_goal": reached_goal,
+                        "total_travel_time": total_travel_time,
+                    },
+                    step=epoch * len(dataset) + graph_idx,
+                )
 
-        # Log the agent state dict
-        log_agent_checkpoint(agent, epoch)
+                # Log artifacts
+                log_episode_artifacts(episode_info, epoch, graph_idx, fig)
 
-    # Log full models
-    log_full_models(agent)
+                ### Reset agent and environment for next episode
+                agent.reset()
+                env.reward_modifier_calculator.reset()
+
+            # Log the agent state dict
+            log_agent_checkpoint(agent, epoch)
+
+        # Log full models
+        log_full_models(agent)
+    return total_travel_time
+
+
+if __name__ == "__main__":
+    main()
