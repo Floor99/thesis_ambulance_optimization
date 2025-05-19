@@ -81,12 +81,11 @@ def expand_wait_times(df, num_peaks=2, amp_frac=0.1, sigma=1.0):
 
 if __name__ == "__main__":
     # time_series = pd.read_parquet("data/processed/node_features.parquet")
-    time_series_filled_nan = pd.read_parquet(
-        "data/processed/node_features_filled_nan_average.parquet"
+    timeseries_subgraph = pd.read_parquet(
+        "data/processed_new/timeseries_subgraph.parquet"
     )
-    # mini_df = time_series[4800:(4800+96)]
+   
     new_df = expand_wait_times(
-        time_series_filled_nan, num_peaks=3, amp_frac=0.1, sigma=1.5
+        timeseries_subgraph, num_peaks=3, amp_frac=0.1, sigma=1.5
     )
-    # print(new_df[1000:1050])
-    new_df.to_parquet("data/processed/node_features_expanded.parquet")
+    new_df.to_parquet("data/processed_new/timeseries_expanded_subgraph.parquet")

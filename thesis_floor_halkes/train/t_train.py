@@ -41,7 +41,7 @@ from thesis_floor_halkes.train.mlflow_utils import (
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
 from thesis_floor_halkes.utils.reward_logger import RewardLogger
-from thesis_floor_halkes.utils.simulate_dijkstra import simulate_dijkstra_path_cost
+from thesis_floor_halkes.benchmarks.simulate_dijkstra import simulate_dijkstra_path_cost
 from thesis_floor_halkes.utils.plot_graph import plot_graph
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -60,7 +60,7 @@ def main(cfg: DictConfig):
 
     # ==== Load the static dataset ====
     # dataset = StaticListDataset(
-    #     ts_path="data/processed/node_features.parquet",
+    #     ts_path="data/processed/node_features_expanded.parquet",
     #     # seeds=[0, 1, 2, 3, 4],
     #     seeds=[5, 6, 7, 8, 9],
     #     dists=[200, 300, 400, 500, 600],  # each graph has its own radius
@@ -87,8 +87,8 @@ def main(cfg: DictConfig):
 
     dataset = [
         get_static_data_object(
-            time_series_df_path="data/processed/node_features.parquet",
-            # dist = 1000,
+            time_series_df_path="data/processed/node_features_expanded.parquet",
+            dist = 1000,
             seed=1,
         )
     ]
@@ -108,9 +108,6 @@ def main(cfg: DictConfig):
     higher_speed_bonus = HigherSpeedBonus(
         name="Higher Speed Bonus", bonus=cfg.reward_mod.higher_speed_bonus_value
     )
-    aggregated_step_penalty = AggregatedStepPenalty(
-        name="Aggregated Step Penalty", penalty=cfg.reward_mod.aggregated_step_penalty_value
-    )
     closer_to_goal_bonus = CloserToGoalBonus(
         name="Closer To Goal Bonus", bonus=cfg.reward_mod.closer_to_goal_bonus_value
     )
@@ -120,7 +117,7 @@ def main(cfg: DictConfig):
 
     reward_modifier_calculator = RewardModifierCalculator(
         modifiers=[
-            revisit_penalty,
+            # revisit_penalty,
             penalty_per_step,
             goal_bonus,
             waiting_time_penalty,
@@ -130,7 +127,7 @@ def main(cfg: DictConfig):
             no_signal_intersection_penalty,
         ],
         weights=[
-            1.0,
+            # 1.0,
             1.0,
             1.0,
             1.0,
@@ -215,8 +212,6 @@ def main(cfg: DictConfig):
             )
 
 
-    # logger = RewardLogger(smooth_window=20)
-
     with mlflow.start_run():
         # mlflow.log_params(
         #     {
@@ -243,6 +238,7 @@ def main(cfg: DictConfig):
                 total_reward = 0
                 state = env.reset()
                 entropies = []
+                step_log = []
 
                 for step in range(env.max_steps):
                     action, action_log_prob, entropy = agent.select_action(state)
@@ -256,8 +252,8 @@ def main(cfg: DictConfig):
                     new_state, reward, terminated, truncated, _ = env.step(action)
                     print(f"Action: {action}")
 
-                    print(f"new state static: {new_state.static_data.x[action]}")
-                    print(f"new state dynamic: {new_state.dynamic_data.x[action]}")
+                    new_static_data_x = new_state.static_data.x
+                    new_dynamic_data_x = new_state.dynamic_data.x
 
                     agent.store_state(new_state)
                     agent.store_action_log_prob(action_log_prob)
@@ -269,11 +265,16 @@ def main(cfg: DictConfig):
 
                     total_reward += reward
                     state = new_state
-
+                    
+                    step_information = {
+                        "Step": step,
+                        "Action": action,
+                        "Static Features": new_static_data_x[action],
+                        "Dynamic Features": new_dynamic_data_x[action],                        
+                    }
+                    step_log.append(step_information)
+                    
                     if terminated or truncated:
-                        break
-
-                    if action == 59:
                         break
 
                 # step_id = epoch * len(dataset.data_list) + graph_idx
@@ -304,17 +305,18 @@ def main(cfg: DictConfig):
                 goal_node = env.static_data.end_node
                 reached_goal = int(final_node == goal_node)
                 total_travel_time = sum(env.step_travel_time_route)
-                total_travel_time_including_waittime = total_travel_time + sum(
+                total_travel_time_including_waittime = total_travel_time - sum(
                     [
                         step["Waiting Time Penalty"]
                         for step in env.step_modifier_contributions
                     ]
                 )
-                # total_total_travel_time = total_travel_time_including_waittime + sum(
-                #     [
-                #         step["No Signal Intersection Penalty"]
-                #     ]
-                # )
+                total_total_travel_time = total_travel_time_including_waittime - sum(
+                    [
+                        step["No Signal Intersection Penalty"]
+                        for step in env.step_modifier_contributions
+                    ]
+                )
                 reward_modifier_contributions = [
                     {k: float(v) for k, v in step_contrib.items()}
                     for step_contrib in env.step_modifier_contributions
@@ -340,7 +342,7 @@ def main(cfg: DictConfig):
                     "total_travel_time_including_waittime": float(
                         total_travel_time_including_waittime
                     ),
-                    # "total_total_travel_time": float(total_total_travel_time),
+                    "total_total_travel_time": float(total_total_travel_time),
                     "total_reward": float(total_reward),
                     "avg_entropy": float(avg_entropy),
                     "policy_loss": float(policy_loss.item()),
@@ -375,7 +377,7 @@ def main(cfg: DictConfig):
                 )
 
                 # Log artifacts
-                log_episode_artifacts(episode_info, epoch, graph_idx, fig)
+                log_episode_artifacts(episode_info, step_log, epoch, graph_idx, fig)
 
                 ### Reset agent and environment for next episode
                 agent.reset()
@@ -386,7 +388,7 @@ def main(cfg: DictConfig):
 
         # Log full models
         log_full_models(agent)
-    return total_travel_time
+    return total_total_travel_time
 
 
 if __name__ == "__main__":

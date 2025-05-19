@@ -63,7 +63,7 @@ add_safe_globals([geom_data.DataEdgeAttr])
 class StaticListDataset(Dataset):
     def __init__(
         self,
-        ts_path: str = "data/processed/node_features.parquet",
+        ts_path: str = "data/processed/node_features_expanded.parquet",
         dists: int | list[int] = 100,
         seeds: list[int] | None = None,
         cache_path: str = "data/processed/static_graphs.pt",
@@ -119,7 +119,7 @@ class StaticListDataset(Dataset):
 
 if __name__ == "__main__":
     dataset = StaticListDataset(
-        ts_path="data/processed/node_features.parquet",
+        ts_path="data/processed/node_features_expanded.parquet",
         seeds=[0, 1, 2, 3, 4],
         dists=[200, 300, 400, 500, 600],  # each graph has its own radius
     )

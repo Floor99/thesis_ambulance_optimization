@@ -31,7 +31,7 @@ from thesis_floor_halkes.baselines.critic_network import CriticBaseline
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
 from thesis_floor_halkes.utils.reward_logger import RewardLogger
-from thesis_floor_halkes.utils.simulate_dijkstra import simulate_dijkstra_path_cost
+from thesis_floor_halkes.benchmarks.simulate_dijkstra import simulate_dijkstra_path_cost
 from thesis_floor_halkes.utils.plot_graph import plot_graph
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

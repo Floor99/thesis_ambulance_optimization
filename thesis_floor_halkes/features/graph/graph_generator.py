@@ -10,7 +10,7 @@ import pandas as pd
 
 ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
 
-timeseries_df = pd.read_parquet("data/processed/node_features.parquet")
+timeseries_df = pd.read_parquet("data/processed/node_features_expanded.parquet")
 
 # def create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, timeseries_df):
 #     unique_timeseries = (timeseries_df.loc[:, ['node_id', 'lat', 'lon']]
@@ -40,7 +40,6 @@ def create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, timeseries_df):
         .drop_duplicates(subset=["node_id"])
         .set_index("node_id")
     )
-    print(unique_timeseries)
     G_pt = ox.graph_from_point(
         (lat, lon),
         dist=dist,
@@ -49,7 +48,6 @@ def create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, timeseries_df):
     )
 
     common_nodes = set(G_pt.nodes()).intersection(unique_timeseries.index)
-    print(common_nodes)
     G_sub = G_pt.subgraph(common_nodes).copy()
     G_sub = ox.truncate.largest_component(G_sub, strongly=False)
 
@@ -102,7 +100,7 @@ def plot_sub_graph_in_and_out_nodes_helmond(G_sub, G_pt, ax=None):
     ax.legend()
     # plt.savefig("data/plots/helmond_subgraph.png", dpi=300)
 
-    return ax
+    return fig, ax
 
 
 def get_node_features_subgraph(G_sub):

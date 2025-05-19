@@ -29,7 +29,7 @@ def simulate_dijkstra_path_cost(env: Environment):
             weight="weight",
         )
     except nx.NetworkXNoPath:
-        print("⚠️ No path found by Dijkstra.")
+        print("No path found by Dijkstra.")
         return float("inf")
 
     # 2. Step through the environment using this path

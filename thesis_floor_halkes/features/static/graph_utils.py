@@ -6,7 +6,7 @@ from torch_geometric.data import Data
 import numpy as np
 import pandas as pd
 
-timeseries_df = pd.read_parquet("data/processed/node_features.parquet")
+timeseries_df = pd.read_parquet("data/processed/node_features_expanded.parquet")
 
 
 def create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, timeseries_df):

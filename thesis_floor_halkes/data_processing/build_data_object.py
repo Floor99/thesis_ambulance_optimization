@@ -8,7 +8,7 @@ from thesis_floor_halkes.environment.base import Environment
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetter
 
 
-node_df = pd.read_parquet("data/processed/node_features.parquet")
+node_df = pd.read_parquet("data/processed/node_features_expanded.parquet")
 edge_df = pd.read_parquet("data/processed/edge_features_helmond.parquet")
 print(node_df.dtypes)
 

@@ -107,6 +107,7 @@ class NoSignalIntersectionPenalty(Penalty):
 
         has_light = environment.states[-1].static_data.x[current_node, has_light_idx].item()
         if not has_light:
+            print('has no light, degree > 3 = penalty!')
             return self.penalty
         return 0.0
 

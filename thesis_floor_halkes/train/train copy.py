@@ -38,7 +38,7 @@ from thesis_floor_halkes.train.mlflow_utils import (
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
 from thesis_floor_halkes.utils.reward_logger import RewardLogger
-from thesis_floor_halkes.utils.simulate_dijkstra import simulate_dijkstra_path_cost
+from thesis_floor_halkes.benchmarks.simulate_dijkstra import simulate_dijkstra_path_cost
 from thesis_floor_halkes.utils.plot_graph import plot_graph
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -51,13 +51,13 @@ mlflow.set_experiment("dynamic_ambulance_training")
 
 # ==== Load the static dataset ====
 dataset = StaticListDataset(
-    ts_path="data/processed/node_features.parquet",
+    ts_path="data/processed/node_features_expanded.parquet",
     seeds=[0, 1, 2, 3, 4],
     dists=[200, 300, 400, 500, 600],  # each graph has its own radius
 )
 
 # dataset = [get_static_data_object(
-#     time_series_df_path="data/processed/node_features.parquet",
+#     time_series_df_path="data/processed/node_features_expanded.parquet",
 #     dist = 1000,
 #     seed = 42)]
 

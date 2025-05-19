@@ -206,10 +206,10 @@ class DynamicEnvironment(Environment):
         if self.steps_taken >= self.max_steps:
             self.truncated = True
 
-        if self.terminated or self.truncated:
-            agg = AggregatedStepPenalty(name="aggregated_step_penalty", penalty=-3.0)
-            agg_value = agg(environment=self)
-            reward += agg_value
+        # if self.terminated or self.truncated:
+        #     agg = AggregatedStepPenalty(name="aggregated_step_penalty", penalty=-3.0)
+        #     agg_value = agg(environment=self)
+        #     reward += agg_value
 
         return new_state, reward, self.terminated, self.truncated, {}
 
