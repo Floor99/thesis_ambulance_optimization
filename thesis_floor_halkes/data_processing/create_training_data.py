@@ -64,10 +64,10 @@ def generate_train_data(
     n_subgraphs: int = 10,
     threshold: float = 25,
     dist: int = 100,
-    seed: int = 11
+    seed: int = 0
 ):
     base = Path(base_output_dir)
-    successfully_created = 11
+    successfully_created = 0
     seed = seed
     
     while successfully_created < n_subgraphs:
@@ -121,6 +121,6 @@ if __name__ == "__main__":
         nodes_helmond_path="data/processed_new/helmond_nodes.parquet",
         meta_path="data/processed/intersection_metadata.csv",
         measurement_path="data/processed/intersection_measurements_31_01_24.csv",
-        n_subgraphs=16,
+        n_subgraphs=3,
         dist = 500
     )

@@ -42,7 +42,7 @@ def get_static_data_object_subgraph(
     )
     
     edge_features = pd.read_parquet(edge_features_path)
-    edge_features = edge_features.reset_index()
+    # edge_features = edge_features.reset_index()
     edge_index = (
         torch.tensor(edge_features[["u", "v"]].values, dtype=torch.long)
         .t()

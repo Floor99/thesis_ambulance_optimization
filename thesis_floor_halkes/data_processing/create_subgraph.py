@@ -69,8 +69,11 @@ def get_edge_features_subgraph(G_cons):
     edges['osmid'] = edges['osmid'].apply(
         lambda x: x if isinstance(x, list) else [x]
     )
+    
+    edges = edges[["maxspeed", "length", "osmid", "u_original", "v_original"]]
+    edges = edges.reset_index()
 
-    return edges[["maxspeed", "length", "osmid", "u_original", "v_original"]]
+    return edges
 
 if __name__ == "__main__":
     nodes_helmond_path = "data/processed_new/helmond_nodes.parquet"
