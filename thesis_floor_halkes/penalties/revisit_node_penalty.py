@@ -11,24 +11,24 @@ class RevisitNodePenalty(Penalty):
     Penalty for revisiting a node in the environment.
     """
 
-    def __init__(self, name: str, penalty:float):
+    def __init__(self, name: str, penalty: float):
         super().__init__(name, penalty)
-        
-    def __call__(self, **kwargs) -> float:
 
-        visited_nodes = kwargs.get('visited_nodes', List[int])
-        action = kwargs.get('action', int)
-        
+    def __call__(self, **kwargs) -> float:
+        visited_nodes = kwargs.get("visited_nodes", List[int])
+        action = kwargs.get("action", int)
+
         if action in visited_nodes:
             return self.penalty
         return 0.0
 
-class PenaltyPerStep(Penalty):          # augment it with a travel time / distance based cost
+
+class PenaltyPerStep(Penalty):  # augment it with a travel time / distance based cost
     """
     Penalty for each step taken in the environment.
     """
 
-    def __init__(self, name: str, penalty:float):
+    def __init__(self, name: str, penalty: float):
         super().__init__(name, penalty)
 
     def __call__(self, **kwargs) -> float:
@@ -40,28 +40,28 @@ class AggregatedStepPenalty(Penalty):
     Penalty for each step taken in the environment, aggregated over all steps.
     """
 
-    def __init__(self, name: str, penalty:float):
+    def __init__(self, name: str, penalty: float):
         super().__init__(name, penalty)
-    
+
     def __call__(self, **kwargs) -> float:
-        environment = kwargs.get('environment', Environment)
-        
+        environment = kwargs.get("environment", Environment)
+
         step_count = environment.steps_taken
-        
+
         return step_count * self.penalty
-    
+
 
 class DeadEndPenalty(Penalty):
     """
     Penalty for reaching a dead end in the environment.
     """
 
-    def __init__(self, name: str, penalty:float):
+    def __init__(self, name: str, penalty: float):
         super().__init__(name, penalty)
 
     def __call__(self, **kwargs) -> float:
-        valid_actions = kwargs.get('valid_actions', List[int])
-        
+        valid_actions = kwargs.get("valid_actions", List[int])
+
         if valid_actions == []:
             return self.penalty
         return 0.0
@@ -72,32 +72,58 @@ class WaitTimePenalty(Penalty):
     Penalty for waiting at a traffic light in the environment.
     """
 
-    def __init__(self, name: str, penalty:float=None):
+    def __init__(self, name: str, penalty: float = None):
+        super().__init__(name, penalty)
+
+    def __call__(self, **kwargs,) -> float:
+        action = kwargs.get("action", int)
+        environment = kwargs.get("environment", Environment)
+        has_light_idx = kwargs.get("has_light_idx")
+        status_idx = kwargs.get("status_idx")
+        wait_time_idx = kwargs.get("wait_time_idx")
+        
+        has_light = bool(environment.states[-1].static_data.x[action, has_light_idx])
+        status = bool(environment.states[-1].dynamic_data.x[action, status_idx])
+        wait_time = float(environment.states[-1].dynamic_data.x[action, wait_time_idx])
+        
+        if has_light and not status:
+            return -wait_time
+        return 0.0
+    
+
+class NoSignalIntersectionPenalty(Penalty):
+    def __init__(self, name: str, penalty: float = None):
         super().__init__(name, penalty)
         
     def __call__(self, **kwargs) -> float:
-
-        action = kwargs.get('action', int)
-        environment = kwargs.get('environment', Environment)
+        has_light_idx = kwargs.get("has_light_idx")
+        environment = kwargs.get("environment", Environment)
+        current_node = kwargs.get("current_node", int)
         
-        if environment.states[-1].static_data.x[:,2][action] and not environment.states[-1].dynamic_data.x[:,0][action]:
-            return -(environment.states[-1].dynamic_data.x[:,1][action])
+        degree = len(environment.adjecency_matrix[current_node])
+        if degree < 3:
+            return 0.0
+
+        has_light = environment.states[-1].static_data.x[current_node, has_light_idx].item()
+        if not has_light:
+            return self.penalty
         return 0.0
 
 
+        
+        
 class GoalBonus(Bonus):
     """
     Bonus for reaching the goal in the environment.
     """
 
-    def __init__(self, name: str, bonus:float):
+    def __init__(self, name: str, bonus: float):
         super().__init__(name, bonus)
 
     def __call__(self, **kwargs) -> float:
+        current_node = kwargs.get("current_node", int)
+        end_node = kwargs.get("end_node", int)
 
-        current_node = kwargs.get('current_node', int)
-        end_node = kwargs.get('end_node', int)
-        
         if current_node == end_node:
             return self.bonus
         return 0.0
@@ -106,54 +132,62 @@ class GoalBonus(Bonus):
 class CloserToGoalBonus(Bonus):
     """
     Bonus for every step getting closer to the goal in the environment, based on Euclidean distance.
-    
+
     Penalty when moving away from the goal.
     """
-    def __init__(self, name: str, bonus:float,discount_factor:float=0.99):
-        super().__init__(name, bonus,)
+
+    def __init__(self, name: str, bonus: float, discount_factor: float = 0.99):
+        super().__init__(
+            name,
+            bonus,
+        )
         self.discount_factor = discount_factor
-    
+
     def __call__(self, **kwargs) -> float:
-        environment = kwargs.get('environment', Environment)
-        
+        environment = kwargs.get("environment", Environment)
+        dist_to_goal_idx = kwargs.get("dist_to_goal_idx", int)
+
         if len(environment.states) >= 2:
             previous_node = environment.states[-2].current_node
-        else: 
+        else:
             previous_node = environment.states[-1].current_node
         current_node = environment.states[-1].current_node
-        
-        dist_to_goal = environment.states[-1].static_data.x[:,3]
+
+        dist_to_goal = environment.states[-1].static_data.x[:, dist_to_goal_idx]
         distance_prev = dist_to_goal[previous_node].item()
         distance_curr = dist_to_goal[current_node].item()
 
-        shaping = distance_prev - self.discount_factor * (distance_curr) 
-                
+        shaping = distance_prev - self.discount_factor * (distance_curr)
+
         return shaping * self.bonus
-        
-        
+
+
 class HigherSpeedBonus(Bonus):
     """
     Bonus for roads with a higher speed limit in the environment.
     """
+
     def __init__(self, name, bonus):
         super().__init__(name, bonus)
-        
+
     def __call__(self, **kwargs) -> float:
-        environment = kwargs.get('environment', Environment)
-        action = kwargs.get('action', int)
-        
-        if environment.states[-1].static_data.edge_attr[:, 1][action].item() > 50.0:   
+        environment = kwargs.get("environment", Environment)
+        action = kwargs.get("action", int)
+        speed_idx = kwargs.get("speed_idx", int)
+
+        if environment.states[-1].static_data.edge_attr[:, speed_idx][action].item() > 50.0:
             return self.bonus
         return 0.0
-    
+
 
 class MoreLanesBonus(Bonus):
     """
     Bonus for roads with more lanes in the environment.
     """
+
     def __init__(self, name, bonus):
         super().__init__(name, bonus)
-        
+
         pass
 
 
@@ -161,9 +195,8 @@ class MainRoadBonus(Bonus):
     """
     Bonus for main roads in the environment.
     """
+
     def __init__(self, name, bonus):
         super().__init__(name, bonus)
-        
+
         pass
-
-

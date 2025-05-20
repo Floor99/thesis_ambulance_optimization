@@ -1,5 +1,5 @@
 # import os
-# import torch 
+# import torch
 # from torch_geometric.data import Data, Dataset
 
 # from thesis_floor_halkes.features.static.getter import get_static_data_object
@@ -23,7 +23,7 @@
 
 #     def get(self, idx: int):
 #         return self.data_list[idx]
-        
+
 
 # import torch
 # from thesis_floor_halkes.features.graph.graph_generator import get_static_data_object
@@ -46,24 +46,24 @@
 # print("Saved 5 static graphs to data/processed/static_graphs.pt")
 
 
-
-
-
 import os
 from matplotlib import pyplot as plt
 import torch
 from torch_geometric.data import Dataset
-from thesis_floor_halkes.features.graph.graph_generator import plot_sub_graph_in_and_out_nodes_helmond
+from thesis_floor_halkes.features.graph.graph_generator import (
+    plot_sub_graph_in_and_out_nodes_helmond,
+)
 from thesis_floor_halkes.features.static.getter import get_static_data_object
 from torch.serialization import add_safe_globals
 import torch_geometric.data.data as geom_data
 
 add_safe_globals([geom_data.DataEdgeAttr])
 
+
 class StaticListDataset(Dataset):
     def __init__(
         self,
-        ts_path: str = "data/processed/node_features.parquet",
+        ts_path: str = "data/processed/node_features_expanded.parquet",
         dists: int | list[int] = 100,
         seeds: list[int] | None = None,
         cache_path: str = "data/processed/static_graphs.pt",
@@ -85,9 +85,11 @@ class StaticListDataset(Dataset):
             self.dists = [dists] * N
         else:
             if len(dists) != N:
-                raise ValueError(f"len(dists) ({len(dists)}) must match len(seeds) ({N})")
+                raise ValueError(
+                    f"len(dists) ({len(dists)}) must match len(seeds) ({N})"
+                )
             self.dists = dists
-        
+
         self.cache_path = cache_path
 
         if os.path.exists(self.cache_path):
@@ -113,26 +115,28 @@ class StaticListDataset(Dataset):
 
     def get(self, idx: int):
         return self.data_list[idx]
-    
+
 
 if __name__ == "__main__":
     dataset = StaticListDataset(
-    ts_path="data/processed/node_features.parquet",
-    seeds=[0,1,2,3,4],
-    dists=[200, 300, 400, 500, 600],   # each graph has its own radius
+        ts_path="data/processed/node_features_expanded.parquet",
+        seeds=[0, 1, 2, 3, 4],
+        dists=[200, 300, 400, 500, 600],  # each graph has its own radius
     )
 
     # 2) iterate, collect info
     summaries = []
     for idx, data in enumerate(dataset):
-        summaries.append({
-            "idx"       : idx,
-            "nodes"     : data.num_nodes,
-            "edges"     : data.num_edges,
-            "start_node": data.start_node,
-            "end_node"  : data.end_node,
-            "gsub"     : data.G_sub,
-        })
+        summaries.append(
+            {
+                "idx": idx,
+                "nodes": data.num_nodes,
+                "edges": data.num_edges,
+                "start_node": data.start_node,
+                "end_node": data.end_node,
+                "gsub": data.G_sub,
+            }
+        )
 
     # 3) print at the end
     print("=== Summary of all 5 graphs ===")
@@ -144,7 +148,6 @@ if __name__ == "__main__":
             f"start={s['start_node']}, "
             f"end={s['end_node']}"
         )
-        
 
     out_dir = "data/plots/subgraphs"
     os.makedirs(out_dir, exist_ok=True)
@@ -156,7 +159,3 @@ if __name__ == "__main__":
         filename = os.path.join(out_dir, f"helmond_subgraph_{idx}.png")
         ax.figure.savefig(filename, dpi=300)
         plt.close(ax.figure)
-        
-    
-
-                

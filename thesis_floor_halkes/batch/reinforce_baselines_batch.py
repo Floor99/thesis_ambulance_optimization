@@ -1,12 +1,12 @@
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
+
 # from scipy.stats import ttest_rel
 import copy
 
 
 class Baseline(object):
-
     def wrap_dataset(self, dataset):
         return dataset
 
@@ -30,8 +30,12 @@ class Baseline(object):
 
 
 class WarmupBaseline(Baseline):
-
-    def __init__(self, baseline, n_epochs=1, warmup_exp_beta=0.8, ):
+    def __init__(
+        self,
+        baseline,
+        n_epochs=1,
+        warmup_exp_beta=0.8,
+    ):
         super(Baseline, self).__init__()
 
         self.baseline = baseline
@@ -51,7 +55,6 @@ class WarmupBaseline(Baseline):
         return self.warmup_baseline.unwrap_batch(batch)
 
     def eval(self, x, c):
-
         if self.alpha == 1:
             return self.baseline.eval(x, c)
         if self.alpha == 0:
@@ -59,7 +62,9 @@ class WarmupBaseline(Baseline):
         v, l = self.baseline.eval(x, c)
         vw, lw = self.warmup_baseline.eval(x, c)
         # Return convex combination of baseline and of loss
-        return self.alpha * v + (1 - self.alpha) * vw, self.alpha * l + (1 - self.alpha) * lw
+        return self.alpha * v + (1 - self.alpha) * vw, self.alpha * l + (
+            1 - self.alpha
+        ) * lw
 
     def epoch_callback(self, model, epoch):
         # Need to call epoch callback of inner model (also after first epoch if we have not used it)
@@ -78,13 +83,11 @@ class WarmupBaseline(Baseline):
 
 
 class NoBaseline(Baseline):
-
     def eval(self, x, c):
         return 0, 0  # No baseline, no loss
 
 
 class ExponentialBaseline(Baseline):
-
     def __init__(self, beta):
         super(Baseline, self).__init__()
 
@@ -92,27 +95,25 @@ class ExponentialBaseline(Baseline):
         self.v = None
 
     def eval(self, x, c):
-
         if self.v is None:
             v = c.mean()
         else:
-            v = self.beta * self.v + (1. - self.beta) * c.mean()
+            v = self.beta * self.v + (1.0 - self.beta) * c.mean()
 
         self.v = v.detach()  # Detach since we never want to backprop
         return self.v, 0  # No loss
 
     def state_dict(self):
-        return {
-            'v': self.v
-        }
+        return {"v": self.v}
 
     def load_state_dict(self, state_dict):
-        self.v = state_dict['v']
+        self.v = state_dict["v"]
+
 
 from torch_geometric.data import Batch
 
-class CriticBaseline(Baseline):
 
+class CriticBaseline(Baseline):
     def __init__(self, critic):
         super(Baseline, self).__init__()
 
@@ -126,7 +127,7 @@ class CriticBaseline(Baseline):
     def eval(self, x, c):
         # Batch the list of PyG Data objects and move to the same device as returns
         batch = Batch.from_data_list(x).to(c.device)
-        v = self.critic(batch)                  # shape: [batch_size]
+        v = self.critic(batch)  # shape: [batch_size]
         return v.detach(), F.mse_loss(v, c.detach())
 
     def get_learnable_parameters(self):
@@ -136,12 +137,10 @@ class CriticBaseline(Baseline):
         pass
 
     def state_dict(self):
-        return {
-            'critic': self.critic.state_dict()
-        }
+        return {"critic": self.critic.state_dict()}
 
     def load_state_dict(self, state_dict):
-        critic_state_dict = state_dict.get('critic', {})
+        critic_state_dict = state_dict.get("critic", {})
         if not isinstance(critic_state_dict, dict):  # backwards compatibility
             critic_state_dict = critic_state_dict.state_dict()
         self.critic.load_state_dict({**self.critic.state_dict(), **critic_state_dict})
@@ -235,19 +234,15 @@ class CriticBaseline(Baseline):
 
 
 class BaselineDataset(Dataset):
-
     def __init__(self, dataset=None, baseline=None):
         super(BaselineDataset, self).__init__()
 
         self.dataset = dataset
         self.baseline = baseline
-        assert (len(self.dataset) == len(self.baseline))
+        assert len(self.dataset) == len(self.baseline)
 
     def __getitem__(self, item):
-        return {
-            'data': self.dataset[item],
-            'baseline': self.baseline[item]
-        }
+        return {"data": self.dataset[item], "baseline": self.baseline[item]}
 
     def __len__(self):
         return len(self.dataset)

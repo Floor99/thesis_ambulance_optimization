@@ -2,7 +2,8 @@ import networkx as nx
 
 from thesis_floor_halkes.environment.base import Environment
 
-def simulate_dijkstra_path_cost(env:Environment):
+
+def simulate_dijkstra_path_cost(env: Environment):
     """
     Simulate following the Dijkstra (shortest static path) in the environment.
     Returns the true dynamic cost (i.e., reward) of this path.
@@ -25,11 +26,11 @@ def simulate_dijkstra_path_cost(env:Environment):
             G,
             source=env.static_data.start_node,
             target=env.static_data.end_node,
-            weight="weight"
+            weight="weight",
         )
     except nx.NetworkXNoPath:
-        print("⚠️ No path found by Dijkstra.")
-        return float('inf')
+        print("No path found by Dijkstra.")
+        return float("inf")
 
     # 2. Step through the environment using this path
     total_cost = 0.0

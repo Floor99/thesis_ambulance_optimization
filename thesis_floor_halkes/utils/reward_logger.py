@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 class RewardLogger:
     def __init__(self, smooth_window=50):
         self.total_rewards = []
@@ -8,14 +9,16 @@ class RewardLogger:
         # self.successes = []
         self.smooth_window = smooth_window
 
-    def log(self, reward, num_nodes, success: bool=None):
+    def log(self, reward, num_nodes, success: bool = None):
         self.total_rewards.append(reward)
         self.rewards_per_node.append(reward / num_nodes)
         # self.successes.append(1 if success else 0)
 
     def plot(self):
         def smooth(x):
-            return np.convolve(x, np.ones(self.smooth_window) / self.smooth_window, mode='valid')
+            return np.convolve(
+                x, np.ones(self.smooth_window) / self.smooth_window, mode="valid"
+            )
 
         plt.figure(figsize=(12, 6))
 

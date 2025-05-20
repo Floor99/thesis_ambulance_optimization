@@ -1,4 +1,5 @@
-from abc import ABC, abstractmethod 
+from abc import ABC, abstractmethod
+
 
 class Baseline(ABC):
     """
@@ -19,5 +20,3 @@ class Baseline(ABC):
             loss_b: scalar MSE loss
         """
         pass
-    
- 

@@ -1,0 +1,72 @@
+defaults:
+  - override hydra/sweeper: optuna
+  - override hydra/sweeper/sampler: tpe
+
+hydra:
+  sweeper:
+    sampler:
+      seed: 123
+    direction: minimize
+    study_name: sphere
+    storage: null
+    n_trials: 20
+    n_jobs: 1
+    params:
+      decoder.num_heads: choice(1, 2, 4, 8)
+      reward_mod.penalty_per_step_value: choice(-1.0, -5.0, -10.0, -20.0)
+      reinforce.discount_factor: choice(0.85, 0.9, 0.95, 0.99)
+      reinforce.entropy_coeff: choice(0.01, 0.1, 0.2)
+      decoder.learning_rate: choice(0.0001, 0.001, 0.01)
+
+decoder:
+  num_heads: 4
+  embedding_dim: 64
+  learning_rate: 0.001
+  dropout: 0.1
+
+stat_enc:
+  num_layers: 4
+  num_heads: 4
+  hidden_size: 64
+  out_size: 64
+  dropout: 0.2
+  learning_rate: 0.001
+
+dyn_enc:
+  num_layers: 4
+  num_heads: 4
+  hidden_size: 64
+  out_size: 64
+  dropout: 0.2
+  learning_rate: 0.001
+
+baseline:
+  hidden_size: 64
+  dropout: 0.2
+  learning_rate: 0.001
+
+reinforce:
+  discount_factor: 0.99
+  entropy_coeff: 0.01
+  baseline_loss_coeff: 0.5
+  max_grad_norm: 0.5
+
+training:
+  batch_size: 32
+  num_epochs: 5
+  max_steps: 40
+  patience: 10
+  early_stopping: True
+  save_best_model: True
+  log_interval: 10
+
+reward_mod:
+  revisit_penalty_value: -50.0
+  penalty_per_step_value: -5.0
+  goal_bonus_value: 100.0
+  dead_end_penalty_value: -100.0
+  higher_speed_bonus_value: 20.0
+  closer_to_goal_bonus_value: 1.0
+  aggregated_step_penalty_value: -10.0
+  no_signal_intersection_penalty_value: -10.0
+
