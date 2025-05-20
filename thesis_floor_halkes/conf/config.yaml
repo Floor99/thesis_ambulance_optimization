@@ -54,7 +54,7 @@ reinforce:
 training:
   batch_size: 32
   num_epochs: 5
-  max_steps: 30
+  max_steps: 40
   patience: 10
   early_stopping: True
   save_best_model: True

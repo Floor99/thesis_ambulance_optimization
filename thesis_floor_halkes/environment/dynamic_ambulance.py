@@ -4,17 +4,11 @@ from torch_geometric.data import Data, Dataset
 import pandas as pd
 import random
 
-from thesis_floor_halkes.features.dynamic.getter import (
-    RandomDynamicFeatureGetter,
-)
+
+from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetterDataFrame
 from thesis_floor_halkes.features.static.getter import get_static_data_object
 from thesis_floor_halkes.penalties.calculator import (
-    PenaltyCalculator,
     RewardModifierCalculator,
-)
-from thesis_floor_halkes.penalties.revisit_node_penalty import (
-    AggregatedStepPenalty,
-    WaitTimePenalty,
 )
 from thesis_floor_halkes.state import State
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
@@ -26,7 +20,7 @@ class DynamicEnvironment(Environment):
     def __init__(
         self,
         static_dataset: list[Data] | Dataset,
-        dynamic_feature_getter: RandomDynamicFeatureGetter,
+        dynamic_feature_getter: DynamicFeatureGetterDataFrame,
         reward_modifier_calculator: RewardModifierCalculator,
         max_steps: int = 30,
         start_timestamp: str | pd.Timestamp = None,
@@ -49,7 +43,7 @@ class DynamicEnvironment(Environment):
         self.terminated = False
         self.truncated = False
         self.time_stamps = sorted(
-            self.static_data.filtered_time_series_df["timestamp"].unique()
+            self.static_data.timeseries["timestamp"].unique()
         )
         self.adjecency_matrix = build_adjecency_matrix(
             self.static_data.num_nodes, self.static_data
@@ -93,7 +87,7 @@ class DynamicEnvironment(Environment):
             current_node = self.static_data.start_node
             visited_nodes = [self.static_data.start_node]
 
-        sub_node_df = self.static_data.filtered_time_series_df
+        sub_node_df = self.static_data.timeseries
         # resample dynamic features
         dynamic_features = self.dynamic_feature_getter.get_dynamic_features(
             environment=self,

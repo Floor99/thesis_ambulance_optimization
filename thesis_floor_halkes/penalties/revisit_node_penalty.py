@@ -101,13 +101,11 @@ class NoSignalIntersectionPenalty(Penalty):
         current_node = kwargs.get("current_node", int)
         
         degree = len(environment.adjecency_matrix[current_node])
-        print(f"Degree: {degree}")
         if degree < 3:
             return 0.0
 
         has_light = environment.states[-1].static_data.x[current_node, has_light_idx].item()
         if not has_light:
-            print('has no light, degree > 3 = penalty!')
             return self.penalty
         return 0.0
 

@@ -41,6 +41,7 @@ def expand_wait_times(df, num_peaks=2, amp_frac=0.1, sigma=1.0):
             center = np.random.uniform(0, 15)
             height = np.random.uniform(0, amp_frac * avg_k)
             peaks += height * np.exp(-0.5 * ((t - center) / sigma) ** 2)
+                    
         peaks[0] = 0.0  # ensure the first minute stays exact
 
         # 3) combine

@@ -1,4 +1,3 @@
-import pandas as pd 
 import osmnx as ox 
 
 def create_helmond_nodes_df():

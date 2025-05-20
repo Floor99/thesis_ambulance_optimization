@@ -16,6 +16,7 @@ from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetterDataFrame
 from thesis_floor_halkes.features.graph.graph_generator import plot_with_route
 from thesis_floor_halkes.features.static.getter import get_static_data_object
+from thesis_floor_halkes.features.static.new_getter import collect_static_data_objects
 from thesis_floor_halkes.features.static.static_dataset import StaticListDataset
 from thesis_floor_halkes.model.decoder import AttentionDecoder, FixedContext
 from thesis_floor_halkes.model.encoders import StaticGATEncoder, DynamicGATEncoder
@@ -85,13 +86,17 @@ def main(cfg: DictConfig):
         "speed": 1,
     }
 
-    dataset = [
-        get_static_data_object(
-            time_series_df_path="data/processed/node_features_expanded.parquet",
-            dist = 1000,
-            seed=1,
-        )
-    ]
+    # dataset = [
+    #     get_static_data_object(
+    #         time_series_df_path="data/processed/node_features_expanded.parquet",
+    #         dist = 1000,
+    #         seed=1,
+    #     )
+    # ]
+    
+    dataset = collect_static_data_objects(
+        base_dir = "data/training_data",
+    )
 
     # ==== Reward Modifiers ====
     revisit_penalty = RevisitNodePenalty(
@@ -232,11 +237,10 @@ def main(cfg: DictConfig):
             print(f"Epoch {epoch + 1}/{num_epochs}")
 
             for graph_idx, static_data in enumerate(dataset):
-                if graph_idx == 5:
-                    break
                 env.static_data = static_data
                 total_reward = 0
                 state = env.reset()
+                print(env.states[0].dynamic_data.x)
                 entropies = []
                 step_log = []
 
@@ -351,15 +355,17 @@ def main(cfg: DictConfig):
                     "reward_modifier_contributions": reward_modifier_contributions,
                 }
 
-                orig_ids_route = [
-                    env.static_data.node_id_mapping[i] for i in agent.current_route
-                ]
-                route = np.array(orig_ids_route).tolist()
+                # orig_ids_route = [
+                #     env.static_data.node_id_mapping[i] for i in agent.current_route
+                # ]
+                # route = np.array(route).tolist()
+                route = agent.current_route
                 fig, _ = plot_with_route(
                     env.static_data.G_sub,
                     env.static_data.G_pt,
                     route,
-                    goal_node=env.static_data.node_id_mapping[goal_node],
+                    # goal_node=env.static_data.node_id_mapping[goal_node],
+                    goal_node = env.static_data.end_node,
                 )
 
                 # Log the metrics

@@ -1,5 +1,6 @@
 import pandas as pd
 import osmnx as ox
+import networkx as nx
 
 from thesis_floor_halkes.features.graph.graph_generator import parse_length, parse_speed
 
@@ -29,6 +30,8 @@ def consilidate_subgraph(G_sub):
         G_proj, tolerance=10, rebuild_graph=True, dead_ends=False, reconnect_edges=True
     )
     G = ox.project_graph(G_cons, to_crs='EPSG:4326')
+    loops = list(nx.selfloop_edges(G, keys=True))
+    G.remove_edges_from(loops)
     return G 
 
 def get_node_features_subgraph(G_cons):
@@ -62,6 +65,10 @@ def get_edge_features_subgraph(G_cons):
     # ensure floats
     edges["maxspeed"] = edges["maxspeed"].astype(float)
     edges["length"]   = edges["length"].astype(float)
+    
+    edges['osmid'] = edges['osmid'].apply(
+        lambda x: x if isinstance(x, list) else [x]
+    )
 
     return edges[["maxspeed", "length", "osmid", "u_original", "v_original"]]
 
