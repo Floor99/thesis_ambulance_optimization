@@ -121,6 +121,6 @@ if __name__ == "__main__":
         nodes_helmond_path="data/processed_new/helmond_nodes.parquet",
         meta_path="data/processed/intersection_metadata.csv",
         measurement_path="data/processed/intersection_measurements_31_01_24.csv",
-        n_subgraphs=3,
+        n_subgraphs=16,
         dist = 500
     )

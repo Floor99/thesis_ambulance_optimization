@@ -1,10 +1,11 @@
+import datetime
 import json
 import math
 import random
 import hydra
 from matplotlib import pyplot as plt
 import numpy as np
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 import torch
 import mlflow
@@ -36,10 +37,13 @@ from thesis_floor_halkes.penalties.revisit_node_penalty import (
 )
 from thesis_floor_halkes.baselines.critic_network import CriticBaseline
 from thesis_floor_halkes.train.mlflow_utils import (
+    flatten_dict,
+    get_nested,
     log_agent_checkpoint,
     log_episode_artifacts,
     log_full_models,
     log_gradient_norms,
+    log_latest_best_params_to_mlflow,
 )
 from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
@@ -59,15 +63,16 @@ torch.autograd.set_detect_anomaly(True)
 def main(cfg: DictConfig):
     os.makedirs("checkpoints", exist_ok=True)
     ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
+    sweep_id = os.environ.get("SWEEP_ID", "no_sweep_id")
     mlflow.set_experiment("dynamic_ambulance_training")
 
-    # ==== Load the static dataset ====
-    # dataset = StaticListDataset(
-    #     ts_path="data/processed/node_features_expanded.parquet",
-    #     # seeds=[0, 1, 2, 3, 4],
-    #     seeds=[5, 6, 7, 8, 9],
-    #     dists=[200, 300, 400, 500, 600],  # each graph has its own radius
+    # ==== Load the static dataset and dataloader ====
+    # dataset = collect_static_data_objects(
+    #     base_dir = "data/training_data",
     # )
+    
+    dataset = StaticDataObjectSet(base_dir="data/training_data")
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
     dynamic_node_idx = {
         "status": 0,
@@ -87,27 +92,10 @@ def main(cfg: DictConfig):
         "length": 0,
         "speed": 1,
     }
-
-    # dataset = [
-    #     get_static_data_object(
-    #         time_series_df_path="data/processed/node_features_expanded.parquet",
-    #         dist = 1000,
-    #         seed=1,
-    #     )
-    # ]
     
-    dataset = collect_static_data_objects(
-        base_dir = "data/training_data",
-    )
-    
-    dataset = StaticDataObjectSet(base_dir="data/training_data")
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
     
 
     # ==== Reward Modifiers ====
-    revisit_penalty = RevisitNodePenalty(
-        name="Revisit Node Penalty", penalty=cfg.reward_mod.revisit_penalty_value
-    )
     penalty_per_step = PenaltyPerStep(
         name="Penalty Per Step", penalty=cfg.reward_mod.penalty_per_step_value
     )
@@ -128,7 +116,6 @@ def main(cfg: DictConfig):
 
     reward_modifier_calculator = RewardModifierCalculator(
         modifiers=[
-            # revisit_penalty,
             penalty_per_step,
             goal_bonus,
             waiting_time_penalty,
@@ -138,7 +125,6 @@ def main(cfg: DictConfig):
             no_signal_intersection_penalty,
         ],
         weights=[
-            # 1.0,
             1.0,
             1.0,
             1.0,
@@ -222,18 +208,28 @@ def main(cfg: DictConfig):
                 agent.baseline.parameters(), lr=cfg.baseline.learning_rate
             )
 
+    sweep_params = [
+        "decoder.num_heads",
+        "reward_mod.penalty_per_step_value",
+        "reinforce.discount_factor",
+        "reinforce.entropy_coeff",
+        "decoder.learning_rate",
+    ]
 
     with mlflow.start_run():
-        # mlflow.log_params(
-        #     {
-        #         "learning_rate": learning_rate,
-        #         "hidden_size": hidden_size,
-        #         "max_steps": env.max_steps,
-        #         "num_epochs": num_epochs,
-        #         "decoder_type": "AttentionDecoder",
-        #         "encoder_type": "GATEncoder",
-        #     }
-        # )
+        mlflow.set_tag("sweep_id", sweep_id)
+        params = OmegaConf.to_container(cfg, resolve=True)
+        flat_params = flatten_dict(params)
+        mlflow.log_params(flat_params)
+        
+        used_params = {}
+        for param in sweep_params:
+            keys = param.split(".")
+            try: 
+                used_params[param] = get_nested(cfg, keys)
+            except Exception:
+                pass
+        mlflow.log_params(used_params)
 
         success_history = []
         rolling_window = 5
@@ -441,4 +437,8 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    sweep_id = f"optuna_sweep_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
+    os.environ["SWEEP_ID"] = sweep_id
     main()
+    if os.environ.get("HYDRY_JOB_NAME") == 'multirun':
+        log_latest_best_params_to_mlflow()
