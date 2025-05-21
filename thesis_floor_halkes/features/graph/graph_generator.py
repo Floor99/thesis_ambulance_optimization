@@ -215,11 +215,12 @@ def plot_with_route(G_sub, G_pt, route=None, ax=None, goal_node=None):
 
     # draw base graph
     ox.plot_graph(
-        G_pt,
+        G_sub,
         ax=ax,
         show=False,
         close=False,
-        node_size=0,
+        node_size=10,
+        node_color="blue",
         edge_color="lightgray",
         edge_linewidth=0.5,
         bgcolor="white",
@@ -230,7 +231,7 @@ def plot_with_route(G_sub, G_pt, route=None, ax=None, goal_node=None):
         reached = goal_node is not None and route[-1] == goal_node
         color = "tab:green" if reached else "tab:red"
         ox.plot_graph_route(
-            G_pt,
+            G_sub,
             route,
             route_color=color,
             route_linewidth=3,
@@ -242,36 +243,36 @@ def plot_with_route(G_sub, G_pt, route=None, ax=None, goal_node=None):
 
     if route:
         start_node = route[0]
-        if start_node in G_pt.nodes():
-            x0 = G_pt.nodes[start_node]["x"]
-            y0 = G_pt.nodes[start_node]["y"]
+        if start_node in G_sub.nodes():
+            x0 = G_sub.nodes[start_node]["x"]
+            y0 = G_sub.nodes[start_node]["y"]
             ax.scatter(x0, y0, c="green", s=100, marker="*", label="start")
 
     if goal_node is not None:
-        if goal_node in G_pt.nodes():
-            x1 = G_pt.nodes[goal_node]["x"]
-            y1 = G_pt.nodes[goal_node]["y"]
+        if goal_node in G_sub.nodes():
+            x1 = G_sub.nodes[goal_node]["x"]
+            y1 = G_sub.nodes[goal_node]["y"]
             ax.scatter(x1, y1, c="red", s=100, marker="*", label="goal")
 
-    # then your inside/outside scatters...
-    pos = {nid: (data["x"], data["y"]) for nid, data in G_pt.nodes(data=True)}
-    inside = set(G_sub.nodes())
-    outside = set(G_pt.nodes()) - inside
+    # # then your inside/outside scatters...
+    # pos = {nid: (data["x"], data["y"]) for nid, data in G_pt.nodes(data=True)}
+    # inside = set(G_sub.nodes())
+    # outside = set(G_pt.nodes()) - inside
 
-    ax.scatter(
-        [pos[n][0] for n in outside],
-        [pos[n][1] for n in outside],
-        c="red",
-        s=10,
-        label="outside DF1",
-    )
-    ax.scatter(
-        [pos[n][0] for n in inside],
-        [pos[n][1] for n in inside],
-        c="blue",
-        s=10,
-        label="inside DF1",
-    )
+    # ax.scatter(
+    #     [pos[n][0] for n in outside],
+    #     [pos[n][1] for n in outside],
+    #     c="red",
+    #     s=10,
+    #     label="outside DF1",
+    # )
+    # ax.scatter(
+    #     [pos[n][0] for n in inside],
+    #     [pos[n][1] for n in inside],
+    #     c="blue",
+    #     s=10,
+    #     label="inside DF1",
+    # )
 
     ax.legend()
     

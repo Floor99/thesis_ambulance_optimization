@@ -14,12 +14,13 @@ import osmnx as ox
 import os
 from torch.nn.utils import clip_grad_norm_
 from torch_geometric.loader import DataLoader
+from torch.utils.data import random_split
 
 from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetterDataFrame
 from thesis_floor_halkes.features.graph.graph_generator import plot_with_route
 # from thesis_floor_halkes.features.static.getter import get_static_data_object
-from thesis_floor_halkes.features.static.new_getter import collect_static_data_objects, StaticDataObjectSet
+from thesis_floor_halkes.features.static.new_getter import collect_static_data_objects, StaticDataObjectSet, split_subgraphs
 from thesis_floor_halkes.features.static.static_dataset import StaticListDataset
 from thesis_floor_halkes.model.decoder import AttentionDecoder, FixedContext
 from thesis_floor_halkes.model.encoders import StaticGATEncoder, DynamicGATEncoder
@@ -51,8 +52,8 @@ from thesis_floor_halkes.utils.reward_logger import RewardLogger
 from thesis_floor_halkes.benchmarks.simulate_dijkstra import simulate_dijkstra_path_cost
 from thesis_floor_halkes.utils.plot_graph import plot_graph
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# print(f"Using device: {device}")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
 
 torch.autograd.set_detect_anomaly(True)
@@ -71,8 +72,28 @@ def main(cfg: DictConfig):
     #     base_dir = "data/training_data",
     # )
     
-    dataset = StaticDataObjectSet(base_dir="data/training_data")
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+    base_dir = "data/training_data"
+    train_dirs, val_dirs, test_dirs = split_subgraphs(base_dir, train_frac=0.7, val_frac=0.15, seed=42)
+    
+    
+    # dataset = StaticDataObjectSet(base_dir="data/training_data")
+    # n = len(dataset)
+    # train_size = int(0.7 * n)
+    # val_size = int(0.15 * n)
+    # test_size = n - train_size - val_size
+    
+    # train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size], generator=torch.Generator().manual_seed(42))
+
+    
+    train_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=train_dirs, num_pairs_per_graph = 5, seed = 42)
+    val_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=val_dirs, num_pairs_per_graph = 5, seed = 42)
+    test_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=test_dirs, num_pairs_per_graph = 5, seed = 42)
+    
+    train_loader = DataLoader(train_set, batch_size=16, shuffle=False)
+    val_loader = DataLoader(val_set, batch_size=4, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=4, shuffle=False)
+    
+    # dataloader = DataLoader(dataset, batch_size=5, shuffle=False)
 
     dynamic_node_idx = {
         "status": 0,
@@ -137,11 +158,11 @@ def main(cfg: DictConfig):
 
     # ==== Environment and Agent ====
     env = DynamicEnvironment(
-        static_dataset=dataset,
+        static_dataset=train_set,
         dynamic_feature_getter=DynamicFeatureGetterDataFrame(),
         reward_modifier_calculator=reward_modifier_calculator,
         max_steps=cfg.training.max_steps,
-        start_timestamp="2024-01-31 08:30:00",
+        # start_timestamp="2024-01-31 08:30:00",
         dynamic_node_idx=dynamic_node_idx,
         static_node_idx=static_node_idx,
         static_edge_idx=static_edge_idx,
@@ -156,7 +177,7 @@ def main(cfg: DictConfig):
         heads=cfg.stat_enc.num_heads,
         dropout=cfg.stat_enc.dropout,
         out_size=encoder_output_dim,
-    )
+    ).to(device)
     dynamic_encoder = DynamicGATEncoder(
         in_channels=4,
         hidden_size=cfg.dyn_enc.hidden_size,
@@ -164,11 +185,11 @@ def main(cfg: DictConfig):
         heads=cfg.dyn_enc.num_heads,
         dropout=cfg.dyn_enc.dropout,
         out_size=encoder_output_dim,
-    )
+    ).to(device)
     
-    decoder = AttentionDecoder(embed_dim=encoder_output_dim * 2, num_heads=cfg.decoder.num_heads)
-    fixed_context = FixedContext(embed_dim=encoder_output_dim * 2)
-    baseline = CriticBaseline(encoder_output_dim * 2, hidden_dim=cfg.baseline.hidden_size)
+    decoder = AttentionDecoder(embed_dim=encoder_output_dim * 2, num_heads=cfg.decoder.num_heads).to(device)
+    fixed_context = FixedContext(embed_dim=encoder_output_dim * 2).to(device)
+    baseline = CriticBaseline(encoder_output_dim * 2, hidden_dim=cfg.baseline.hidden_size).to(device)
     
     gamma = cfg.reinforce.discount_factor
     agent = DynamicAgent(
@@ -236,15 +257,14 @@ def main(cfg: DictConfig):
         all_travel_times = []
 
         num_epochs = cfg.training.num_epochs
-        num_batches_per_epoch = math.ceil(len(dataset) / dataloader.batch_size)
+        num_batches_per_epoch = math.ceil(len(train_set) / train_loader.batch_size)
         
         for epoch in range(num_epochs):
             print(f"Epoch {epoch + 1}/{num_epochs}")
 
-            for batch_idx, batch in enumerate(dataloader):
+            for batch_idx, batch in enumerate(train_loader):
                 batch_policy_loss = []
                 batch_baseline_loss = []
-                print(len(batch_policy_loss))
             
                 for graph_idx in range(batch.num_graphs):
                     print(f"Graph {graph_idx + 1}/{batch.num_graphs}")
@@ -254,10 +274,8 @@ def main(cfg: DictConfig):
                             val = getattr(static_data, attr)
                             if isinstance(val, torch.Tensor):
                                 setattr(static_data, attr, val.item())
-                    print(static_data.start_node)
                     
                     # static_data = batch.get_example(graph_idx)
-                    print(static_data.start_node)
                     env.static_data = static_data
                     total_reward = 0
                     state = env.reset()
@@ -274,7 +292,6 @@ def main(cfg: DictConfig):
                             baseline_value = agent.baseline(embedding_for_critic)
 
                         new_state, reward, terminated, truncated, _ = env.step(action)
-                        # print(f"Action: {action}")
 
                         new_static_data_x = new_state.static_data.x
                         new_dynamic_data_x = new_state.dynamic_data.x
@@ -303,7 +320,7 @@ def main(cfg: DictConfig):
 
                     # step_id = epoch * len(dataset.data_list) + graph_idx
                     # step_id = epoch * len(dataset) + graph_idx
-                    episode_step_id = epoch * len(dataset) + batch_idx * dataloader.batch_size + graph_idx
+                    episode_step_id = epoch * len(train_set) + batch_idx * train_loader.batch_size + graph_idx
 
                     policy_loss, baseline_loss = agent.finish_episode()
                     total_loss = policy_loss + (baseline_weight * baseline_loss)
@@ -433,12 +450,12 @@ def main(cfg: DictConfig):
 
             # Log full models
             log_full_models(agent)
-        return np.mean(all_travel_times)
+        return np.mean([travel_time.cpu() for travel_time in all_travel_times])
 
 
 if __name__ == "__main__":
     sweep_id = f"optuna_sweep_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
     os.environ["SWEEP_ID"] = sweep_id
     main()
-    if os.environ.get("HYDRY_JOB_NAME") == 'multirun':
+    if os.environ.get("HYDRA_JOB_NAME") == 'multirun':
         log_latest_best_params_to_mlflow()

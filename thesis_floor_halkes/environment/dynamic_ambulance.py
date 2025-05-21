@@ -15,6 +15,7 @@ from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
 from thesis_floor_halkes.utils.travel_time import calculate_edge_travel_time
 from thesis_floor_halkes.environment.base import Environment
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class DynamicEnvironment(Environment):
     def __init__(

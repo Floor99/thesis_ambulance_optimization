@@ -39,6 +39,7 @@ class AttentionDecoder(nn.Module):
         context_vector,
         node_embeddings,
         invalid_action_mask: torch.Tensor | None = None,
+        greedy: bool = False,
     ):
         # Prepare query from context vector
         query = (
@@ -62,11 +63,17 @@ class AttentionDecoder(nn.Module):
         probs = F.softmax(scores, dim=-1)
         assert probs.shape == valid_indices.shape
 
-        # Sample action
-        dist = Categorical(probs)
-        sampled_idx = dist.sample()  # scalar tensor
+        if greedy:
+            sampled_idx = torch.argmax(probs)
+            entropy = torch.tensor(0.0, device=probs.device)
+            log_prob = torch.log(probs[sampled_idx])
+        else: 
+            # Sample action
+            dist = Categorical(probs)
+            sampled_idx = dist.sample()  # scalar tensor
+            entropy = dist.entropy()
+            log_prob = dist.log_prob(sampled_idx)
+        
         action = valid_indices[sampled_idx.item()].item()
-        log_prob = dist.log_prob(sampled_idx)
-        entropy = dist.entropy()
 
         return action, log_prob, entropy

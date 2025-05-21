@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from thesis_floor_halkes.model.encoders import CacheStaticEmbedding
 from thesis_floor_halkes.state import State
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class DynamicAgent(Agent):
     """
@@ -59,13 +60,13 @@ class DynamicAgent(Agent):
 
     def _embed_graph(self, data, graph_type="static"):
         if graph_type == "static":
-            x_static = data.x
-            edge_index = data.edge_index
-            edge_attr = data.edge_attr
+            x_static = data.x.to(device)
+            edge_index = data.edge_index.to(device)
+            edge_attr = data.edge_attr.to(device)
             return self.static_encoder(x_static, edge_index, edge_attr)
         elif graph_type == "dynamic":
-            x_dynamic = data.x
-            edge_index = data.edge_index
+            x_dynamic = data.x.to(device)
+            edge_index = data.edge_index.to(device)
             return self.dynamic_encoder(x_dynamic, edge_index)
         else:
             raise ValueError("Invalid graph type. Use 'static' or 'dynamic'.")
@@ -121,7 +122,7 @@ class DynamicAgent(Agent):
         """
         Create a mask for valid actions.
         """
-        action_mask = torch.ones(num_nodes, dtype=torch.bool)
+        action_mask = torch.ones(num_nodes, dtype=torch.bool, device=device)
         action_mask[valid_actions] = 0
         return action_mask
 
@@ -152,11 +153,11 @@ class DynamicAgent(Agent):
         for r in reversed(self.rewards):
             R = r + self.gamma * R
             returns.insert(0, R)
-        returns = torch.tensor(returns)
+        returns = torch.tensor(returns, device=device)
         if returns.numel() > 1:
             returns = (returns - returns.mean()) / (returns.std() + 1e-6)
         if self.baseline is not None:
-            baseline_values = torch.stack(self.baseline_values)
+            baseline_values = torch.stack(self.baseline_values).to(device)
             advantages = returns - baseline_values
             # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
             baseline_loss = F.mse_loss(baseline_values, returns)
@@ -165,7 +166,7 @@ class DynamicAgent(Agent):
             advantages = returns
             baseline_loss = 0
 
-        log_probs_tensor = torch.stack(self.action_log_probs)
+        log_probs_tensor = torch.stack(self.action_log_probs).to(device)
         policy_loss = -(log_probs_tensor * advantages)
         policy_loss = -(log_probs_tensor * advantages).mean()
         entropy_loss = torch.stack(self.entropies).mean()
