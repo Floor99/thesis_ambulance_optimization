@@ -8,6 +8,7 @@ import osmnx as ox
 from thesis_floor_halkes.data_processing.create_subgraph import consilidate_subgraph, create_subgraph_inside_helmond, get_edge_features_subgraph, get_node_features_subgraph
 from thesis_floor_halkes.data_processing.create_training_data import get_sub_graph, get_timeseries_subgraph
 from thesis_floor_halkes.utils.haversine import haversine
+from torch_geometric.data import Dataset
 
 
 def get_static_data_object_subgraph(
@@ -113,6 +114,18 @@ def collect_static_data_objects(
         static_list.append(static_object)
         
     return static_list
+
+
+class StaticDataObjectSet(Dataset):
+    def __init__(self, base_dir: str, transform=None):
+        super(StaticDataObjectSet, self).__init__(transform=transform)
+        self.data_objects = collect_static_data_objects(base_dir=base_dir)
+        
+    def len(self):
+        return len(self.data_objects)
+    
+    def get(self, idx):
+        return self.data_objects[idx]
 
 
 if __name__ == "__main__":

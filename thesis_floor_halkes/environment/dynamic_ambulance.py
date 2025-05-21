@@ -227,7 +227,7 @@ class DynamicEnvironment(Environment):
         """
         valid = []
         goal = self.static_data.end_node
-
+        
         for v, _ in adj_matrix[current_node]:
             # 1. skip visited
             if v in visited_nodes:

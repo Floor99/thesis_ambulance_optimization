@@ -1,14 +1,8 @@
 import mlflow
 
 
-# def log_episode_artifacts(episode_info, epoch, graph_idx, fig):
-#     graph_folder = f"epoch_{epoch:03}/graph_{graph_idx:02}"
-#     mlflow.log_dict(episode_info, f"{graph_folder}/info.json")
-#     mlflow.log_figure(fig, f"{graph_folder}/graph.png")
-
-
-def log_episode_artifacts(episode_info, step_logs, epoch, graph_idx, fig):
-    graph_folder = f"epoch_{epoch:03}/graph_{graph_idx:02}"
+def log_episode_artifacts(episode_info, step_logs, epoch, batch_idx, graph_idx, fig):
+    graph_folder = f"epoch_{epoch:03}/batch_{batch_idx:03}/graph_{graph_idx:02}"
     
     # Log main info and figure
     mlflow.log_dict(episode_info, f"{graph_folder}/info.json")
