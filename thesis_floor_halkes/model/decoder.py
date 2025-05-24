@@ -49,15 +49,17 @@ class AttentionDecoder(nn.Module):
         # Select only valid node embeddings
         valid_indices = (~invalid_action_mask).nonzero(as_tuple=True)[0]  # [num_valid]
         valid_keys = (
-            node_embeddings[valid_indices].clone().unsqueeze(0)
+            (node_embeddings[valid_indices]
+            #  .clone()
+             .unsqueeze(0))
         )  # [1, num_valid, embed_dim]
-        valid_keys = F.normalize(valid_keys, dim=-1)
+        valid_keys = F.normalize(valid_keys, dim=-1) # Is this ok?
         # Compute attention output (ignore weights for performance)
         attn_output, _ = self.attn(
             query, valid_keys, valid_keys, need_weights=False
         )  # [1, 1, embed_dim]
         attn_output = attn_output.squeeze(0).squeeze(0)  # [embed_dim]
-        attn_output = F.normalize(attn_output, dim=-1)
+        attn_output = F.normalize(attn_output, dim=-1) # Is this ok?
         # Compute scores for each valid node
         scores = torch.matmul(valid_keys.squeeze(0), attn_output)  # [num_valid]
         probs = F.softmax(scores, dim=-1)
@@ -75,5 +77,4 @@ class AttentionDecoder(nn.Module):
             log_prob = dist.log_prob(sampled_idx)
         
         action = valid_indices[sampled_idx.item()].item()
-
         return action, log_prob, entropy

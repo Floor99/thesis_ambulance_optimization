@@ -6,7 +6,7 @@ from thesis_floor_halkes.model.encoders import CacheStaticEmbedding
 from thesis_floor_halkes.state import State
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+device = torch.device("cpu")  # For testing purposes, use CPU
 class DynamicAgent(Agent):
     """
     A dynamic agent that adapts its behavior based on the environment.
@@ -114,7 +114,7 @@ class DynamicAgent(Agent):
 
         self.current_route.append(action)
 
-        return action, action_log_prob, entropy
+        return action, action_log_prob , entropy
 
     def _get_action_mask(
         self, valid_actions: list[int], num_nodes: int
@@ -147,6 +147,12 @@ class DynamicAgent(Agent):
     def store_entropy(self, entropy):
         self.entropies.append(entropy)
 
+    def decay_entropy_coeff(self, decay_rate: float=0.995, min_entropy_coeff: float=1e-4):
+        self.entropy_coeff = max(
+            self.entropy_coeff * decay_rate, min_entropy_coeff
+        )
+    
+
     def finish_episode(self):
         R = 0
         returns = []
@@ -154,11 +160,12 @@ class DynamicAgent(Agent):
             R = r + self.gamma * R
             returns.insert(0, R)
         returns = torch.tensor(returns, device=device)
-        if returns.numel() > 1:
-            returns = (returns - returns.mean()) / (returns.std() + 1e-6)
+        # if returns.numel() > 1:
+        #     returns = (returns - returns.mean()) / (returns.std() + 1e-6)
+
         if self.baseline is not None:
             baseline_values = torch.stack(self.baseline_values).to(device)
-            advantages = returns - baseline_values
+            advantages = (returns - baseline_values).detach()
             # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
             baseline_loss = F.mse_loss(baseline_values, returns)
         else:
@@ -172,7 +179,7 @@ class DynamicAgent(Agent):
         entropy_loss = torch.stack(self.entropies).mean()
         policy_loss = policy_loss - self.entropy_coeff * entropy_loss
 
-        return policy_loss, baseline_loss
+        return policy_loss, baseline_loss, entropy_loss
 
     def reset(self):
         self.action_log_probs.clear()
