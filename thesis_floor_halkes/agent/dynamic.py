@@ -160,8 +160,8 @@ class DynamicAgent(Agent):
             R = r + self.gamma * R
             returns.insert(0, R)
         returns = torch.tensor(returns, device=device)
-        # if returns.numel() > 1:
-        #     returns = (returns - returns.mean()) / (returns.std() + 1e-6)
+        if returns.numel() > 1:
+            returns = (returns - returns.mean()) / (returns.std() + 1e-6)
 
         if self.baseline is not None:
             baseline_values = torch.stack(self.baseline_values).to(device)

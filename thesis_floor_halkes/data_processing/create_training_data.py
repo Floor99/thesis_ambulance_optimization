@@ -2,7 +2,7 @@ from pathlib import Path
 import pandas as pd
 import osmnx as ox
 
-from thesis_floor_halkes.data_processing.create_subgraph import consilidate_subgraph, create_subgraph_inside_helmond, get_edge_features_subgraph, get_node_features_subgraph
+from thesis_floor_halkes.data_processing.create_subgraph import consilidate_subgraph, consolidate_edges_to_single, create_subgraph_inside_helmond, get_edge_features_subgraph, get_node_features_subgraph
 from thesis_floor_halkes.data_processing.expand_to_min_subgraph import expand_wait_times
 from thesis_floor_halkes.data_processing.merge_sub_timeseries import merge_timeseries_pipeline
 
@@ -22,6 +22,8 @@ def get_sub_graph(nodes_helmond_path,
     G_sub, G_pt = create_subgraph_inside_helmond(nodes_helmond_path, lat, lon, dist=dist)
     G_cons = consilidate_subgraph(G_sub)
     G_pt_cons = consilidate_subgraph(G_pt)
+    
+    G_cons = consolidate_edges_to_single(G_cons, weight_attr="length", agg="min")
     
     node_features = get_node_features_subgraph(G_cons)
     edge_features = get_edge_features_subgraph(G_cons)
@@ -121,6 +123,6 @@ if __name__ == "__main__":
         nodes_helmond_path="data/processed_new/helmond_nodes.parquet",
         meta_path="data/processed/intersection_metadata.csv",
         measurement_path="data/processed/intersection_measurements_31_01_24.csv",
-        n_subgraphs=16,
-        dist = 500
+        n_subgraphs= 16,
+        dist = 1000
     )

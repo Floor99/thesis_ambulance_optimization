@@ -88,8 +88,8 @@ def main(cfg: DictConfig):
     # train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size], generator=torch.Generator().manual_seed(42))
 
     
-    train_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=train_dirs, num_pairs_per_graph = 1, seed = 42)
-    train_set.data_objects = [train_set.data_objects[0]]
+    train_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=train_dirs, num_pairs_per_graph = 2, seed = 42)
+    # train_set.data_objects = [train_set.data_objects[0]]
     # val_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=val_dirs, num_pairs_per_graph = 5, seed = 42)
     # test_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=test_dirs, num_pairs_per_graph = 5, seed = 42)
     
@@ -259,8 +259,14 @@ def main(cfg: DictConfig):
                     env.static_data = static_data
                     
                     state = env.reset()
+                    skip_episode = False
 
-                    for step in range(env.max_steps):                        
+                    for step in range(env.max_steps):
+                        # print(env.states[-1].valid_actions)
+                        if len(env.states[-1].valid_actions) == 0:
+                            print(f"Graph {graph_idx} has no valid actions. Skipping episode.")
+                            skip_episode = True
+                            break               
                         action, action_log_prob, entropy = agent.select_action(state)
                         new_state, reward, terminated, truncated, _ = env.step(action)
 
@@ -277,7 +283,9 @@ def main(cfg: DictConfig):
                         
                         if terminated or truncated:
                             break
-
+                            
+                    if skip_episode:
+                        continue
                     policy_loss, baseline_loss, entropy_loss = agent.finish_episode()
                     total_loss = policy_loss + (baseline_weight * baseline_loss)
                     
@@ -300,15 +308,15 @@ def main(cfg: DictConfig):
                     
                     
                     
-                    if use_joint_optimization:
-                        batch_policy_loss.append(total_loss)
-                    else:
-                        batch_policy_loss.append(policy_loss)
-                        batch_baseline_loss.append(baseline_loss)
+                    # if use_joint_optimization:
+                    #     batch_policy_loss.append(total_loss)
+                    # else:
+                    #     batch_policy_loss.append(policy_loss)
+                    #     batch_baseline_loss.append(baseline_loss)
 
                     ### Reset agent and environment for next episode
-                    # agent.reset()
-                    # env.reward_modifier_calculator.reset()
+                    agent.reset()
+                    env.reward_modifier_calculator.reset()
                 
                 batch_step_id = epoch * num_batches_per_epoch + batch_idx
                 batch_metrics = create_and_log_batch_data_to_mlflow(
@@ -329,7 +337,7 @@ def main(cfg: DictConfig):
                 # prev_params = {name: param.clone() for name, param in agent.static_encoder.named_parameters()}
                 if use_joint_optimization and baseline is not None:
                     batch_total_loss = batch_metrics.batch_total_loss
-                    print("Batch total loss:", batch_total_loss)
+                    # print("Batch total loss:", batch_total_loss)
                     optimizer.zero_grad()
                     batch_total_loss.backward()
                     # clip_grad_norm_(agent.parameters(), max_norm=cfg.training.max_grad_norm)
@@ -339,7 +347,7 @@ def main(cfg: DictConfig):
                     # for name, param in agent.static_encoder.named_parameters():
                     #     if param.grad is not None:
                     #         print(f"  {name:20s} | grad norm = {param.grad.norm():.4f}")
-                    print("batch_policy_loss grad_fn:", batch_total_loss.grad_fn)
+                    # print("batch_policy_loss grad_fn:", batch_total_loss.grad_fn)
                     # print("batch_baseline_loss grad_fn:", batch_baseline_loss.grad_fn)
                     optimizer.step()
                     # # 7) Measure parameter changes
@@ -363,8 +371,8 @@ def main(cfg: DictConfig):
                         batch_policy_loss.backward()
                         # clip_grad_norm_(agent.parameters(), max_norm=cfg.training.max_grad_norm)
                         policy_optimizer.step()
-                agent.reset()
-                env.reward_modifier_calculator.reset()
+                # agent.reset()
+                # env.reward_modifier_calculator.reset()
                 
                 # print_param_norms(agent.static_encoder, "Static Encoder")
                 # print_param_norms(agent.dynamic_encoder, "Dynamic Encoder")
@@ -383,8 +391,10 @@ def main(cfg: DictConfig):
 
         # Log full models
         log_full_models(agent)
-        episode_travel_times = [episode.travel_time for episode in episode_metrics_objects]
-        return np.mean([travel_time.cpu() for travel_time in episode_travel_times])
+        # episode_travel_times = [episode.travel_time for episode in episode_metrics_objects]
+        # return np.mean([travel_time.cpu() for travel_time in episode_travel_times])
+        episode_rewards = [sum(episode.rewards) for episode in episode_metrics_objects]
+        return np.mean([reward.cpu() for reward in episode_rewards])
 
 @dataclass
 class EpisodeMetrics:
