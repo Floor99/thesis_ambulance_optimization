@@ -163,7 +163,8 @@ class CloserToGoalBonus(Bonus):
         distance_curr = dist_to_goal[current_node].item()
 
         shaping = distance_prev - self.discount_factor * (distance_curr)
-
+        if shaping < 0:
+            shaping = 0.0
         return shaping * self.bonus
 
 
