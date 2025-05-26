@@ -61,9 +61,14 @@ class DeadEndPenalty(Penalty):
 
     def __call__(self, **kwargs) -> float:
         valid_actions = kwargs.get("valid_actions", List[int])
+        environment = kwargs.get("environment", Environment)
 
         if valid_actions == []:
             return self.penalty
+        
+        if environment.truncated:
+            return self.penalty
+        
         return 0.0
 
 
@@ -158,7 +163,8 @@ class CloserToGoalBonus(Bonus):
         distance_curr = dist_to_goal[current_node].item()
 
         shaping = distance_prev - self.discount_factor * (distance_curr)
-
+        if shaping < 0:
+            shaping = 0.0
         return shaping * self.bonus
 
 

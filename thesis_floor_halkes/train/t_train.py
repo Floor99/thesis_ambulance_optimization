@@ -15,7 +15,7 @@ from torch.nn.utils import clip_grad_norm_
 from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetterDataFrame
 from thesis_floor_halkes.features.graph.graph_generator import plot_with_route
-from thesis_floor_halkes.features.static.getter import get_static_data_object
+# from thesis_floor_halkes.features.static.getter import get_static_data_object
 from thesis_floor_halkes.features.static.new_getter import collect_static_data_objects
 from thesis_floor_halkes.features.static.static_dataset import StaticListDataset
 from thesis_floor_halkes.model.decoder import AttentionDecoder, FixedContext

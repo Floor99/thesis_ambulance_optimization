@@ -58,7 +58,7 @@ print(f"Using device: {device}")
 
 torch.autograd.set_detect_anomaly(True)
 
-from time import time
+
 # ==== Training Loop with MLFlow Tracking ====
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
@@ -84,13 +84,12 @@ def main(cfg: DictConfig):
     
     # train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size], generator=torch.Generator().manual_seed(42))
 
-    start_time = time()
-    print(f"Start loading static data objects at {start_time}")
-    train_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=train_dirs, num_pairs_per_graph = 5, seed = 42)
+    
+    train_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=train_dirs, num_pairs_per_graph = 1, seed = 42)
     # val_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=val_dirs, num_pairs_per_graph = 5, seed = 42)
     # test_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=test_dirs, num_pairs_per_graph = 5, seed = 42)
-    print(f"Finished loading static data objects at {time() - start_time} seconds")
-    train_loader = DataLoader(train_set, batch_size=16, shuffle=False)
+    
+    train_loader = DataLoader(train_set, batch_size=cfg.training.batch_size, shuffle=False)
     # val_loader = DataLoader(val_set, batch_size=4, shuffle=False)
     # test_loader = DataLoader(test_set, batch_size=4, shuffle=False)
     
@@ -230,97 +229,61 @@ def main(cfg: DictConfig):
                 agent.baseline.parameters(), lr=cfg.baseline.learning_rate
             )
 
-    sweep_params = [
-        "decoder.num_heads",
-        "reward_mod.penalty_per_step_value",
-        "reinforce.discount_factor",
-        "reinforce.entropy_coeff",
-        "decoder.learning_rate",
-    ]
-
     with mlflow.start_run():
         mlflow.set_tag("sweep_id", sweep_id)
-        params = OmegaConf.to_container(cfg, resolve=True)
-        flat_params = flatten_dict(params)
-        mlflow.log_params(flat_params)
+        log_hydra_config_to_mlflow(cfg)
         
-        used_params = {}
-        for param in sweep_params:
-            keys = param.split(".")
-            try: 
-                used_params[param] = get_nested(cfg, keys)
-            except Exception:
-                pass
-        mlflow.log_params(used_params)
 
-        success_history = []
+        episode_success_histories = []
         rolling_window = 5
-        all_travel_times = []
+        episode_travel_times = []
 
         num_epochs = cfg.training.num_epochs
         num_batches_per_epoch = math.ceil(len(train_set) / train_loader.batch_size)
         
         for epoch in range(num_epochs):
             print(f"Epoch {epoch + 1}/{num_epochs}")
+            
+            epoch_success_histories = []
 
             for batch_idx, batch in enumerate(train_loader):
                 batch_policy_loss = []
                 batch_baseline_loss = []
+                
+                
             
                 for graph_idx in range(batch.num_graphs):
                     print(f"Graph {graph_idx + 1}/{batch.num_graphs}")
+
                     static_data = batch.get_example(graph_idx)
-                    for attr in ['start_node', 'end_node']:
-                        if hasattr(static_data, attr): 
-                            val = getattr(static_data, attr)
-                            if isinstance(val, torch.Tensor):
-                                setattr(static_data, attr, val.item())
-                    
-                    # static_data = batch.get_example(graph_idx)
                     env.static_data = static_data
+                    
                     total_reward = 0
                     state = env.reset()
-                    entropies = []
-                    step_log = []
+                    # entropies = []
 
                     for step in range(env.max_steps):
                         action, action_log_prob, entropy = agent.select_action(state)
-                        entropies.append(entropy.item())
-
-                        if baseline is not None:
-                            embedding = agent.embeddings[-1]["final"]
-                            embedding_for_critic = embedding.detach()
-                            baseline_value = agent.baseline(embedding_for_critic)
+                        # entropies.append(entropy.item())                            
 
                         new_state, reward, terminated, truncated, _ = env.step(action)
-
-                        new_static_data_x = new_state.static_data.x
-                        new_dynamic_data_x = new_state.dynamic_data.x
 
                         agent.store_state(new_state)
                         agent.store_action_log_prob(action_log_prob)
                         agent.store_action(action)
                         agent.store_reward(reward)
-                        if baseline is not None:
-                            agent.store_baseline_value(baseline_value)
                         agent.store_entropy(entropy)
+                        if baseline is not None:
+                            baseline_value = get_baseline_value(agent)
+                            print(f"Baseline value: {baseline_value}")
+                            agent.store_baseline_value(baseline_value)
 
                         total_reward += reward
                         state = new_state
                         
-                        step_information = {
-                            "Step": step,
-                            "Action": action,
-                            "Static Features": new_static_data_x[action],
-                            "Dynamic Features": new_dynamic_data_x[action],                        
-                        }
-                        step_log.append(step_information)
-                        
                         if terminated or truncated:
                             break
 
-                    # step_id = epoch * len(dataset.data_list) + graph_idx
-                    # step_id = epoch * len(dataset) + graph_idx
                     episode_step_id = epoch * len(train_set) + batch_idx * train_loader.batch_size + graph_idx
 
                     policy_loss, baseline_loss = agent.finish_episode()
@@ -335,11 +298,10 @@ def main(cfg: DictConfig):
                     
 
                     ### MLflow logging
-                    avg_entropy = sum(entropies) / len(entropies)
-                    final_node = agent.current_route[-1]
-                    goal_node = env.static_data.end_node
-                    reached_goal = int(final_node == goal_node)
+                    avg_entropy = torch.mean(torch.stack(agent.entropies)).item()
+                    reached_goal = has_agent_reached_goal(env, agent)
                     total_travel_time = sum(env.step_travel_time_route)
+                    
                     total_travel_time_including_waittime = total_travel_time - sum(
                         [
                             step["Waiting Time Penalty"]
@@ -352,7 +314,7 @@ def main(cfg: DictConfig):
                             for step in env.step_modifier_contributions
                         ]
                     )
-                    all_travel_times.append(total_total_travel_time)
+                    episode_travel_times.append(total_total_travel_time)
                     
                     reward_modifier_contributions = [
                         {k: float(v) for k, v in step_contrib.items()}
@@ -360,12 +322,12 @@ def main(cfg: DictConfig):
                     ]
 
                     if reached_goal == 1:
-                        success_history.append(1)
+                        episode_success_histories.append(1)
                     else:
-                        success_history.append(0)
+                        episode_success_histories.append(0)
 
-                    if len(success_history) >= rolling_window:
-                        success_rate = np.mean(success_history[-rolling_window:] * 100)
+                    if len(episode_success_histories) >= rolling_window:
+                        success_rate = np.mean(episode_success_histories[-rolling_window:] * 100)
                         mlflow.log_metric("success_rate", success_rate, step=episode_step_id)
 
                     episode_info = {
@@ -391,7 +353,6 @@ def main(cfg: DictConfig):
                     route = agent.current_route
                     fig, _ = plot_with_route(
                         env.static_data.G_sub,
-                        env.static_data.G_pt,
                         route,
                         goal_node = env.static_data.end_node,
                     )
@@ -408,6 +369,7 @@ def main(cfg: DictConfig):
                     )
 
                     # Log artifacts
+                    step_log = create_step_log(agent)
                     log_episode_artifacts(episode_info, step_log, epoch, batch_idx, graph_idx, fig)
 
                     ### Reset agent and environment for next episode
@@ -445,15 +407,42 @@ def main(cfg: DictConfig):
                             "batch_policy_loss": policy_batch_loss.item(),
                         }, step=batch_step_id)
                         
-                agent.decay_entropy_coeff()
-                         
+                        
                 # Log the agent state dict
                 log_agent_checkpoint(agent, epoch)
 
             # Log full models
             log_full_models(agent)
-        return np.mean([travel_time.cpu() for travel_time in all_travel_times])
+        return np.mean([travel_time.cpu() for travel_time in episode_travel_times])
 
+def has_agent_reached_goal(env, agent):
+    final_node = agent.current_route[-1]
+    goal_node = env.static_data.end_node
+    reached_goal = int(final_node == goal_node)
+    return reached_goal
+
+def get_baseline_value(agent):
+    embedding = agent.embeddings[-1]["final"]
+    embedding_for_critic = embedding.detach()
+    baseline_value = agent.baseline(embedding_for_critic)
+    return baseline_value
+
+def log_hydra_config_to_mlflow(cfg):
+    params = OmegaConf.to_container(cfg, resolve=True)
+    flat_params = flatten_dict(params)
+    mlflow.log_params(flat_params)
+
+def create_step_log(agent):
+    step_log = []
+    for step in range(len(agent.states)):
+        step_info = {
+            "Step": step,
+            "Action": agent.actions[step],
+            "Static Features": agent.states[step].static_data.x[agent.actions[step]],#.cpu().numpy().tolist(),
+            "Dynamic Features": agent.states[step].dynamic_data.x[agent.actions[step]],#.cpu().numpy().tolist(),
+        }
+        step_log.append(step_info)
+    return step_log
 
 if __name__ == "__main__":
     sweep_id = f"optuna_sweep_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
