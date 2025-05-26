@@ -186,21 +186,25 @@ def split_subgraphs(base_dir, train_frac=0.7, val_frac=0.15, seed=42):
 #     def get(self, idx):
 #         return self.data_objects[idx]
 
-class StaticDataObjectSet(Dataset):
-    def __init__(self, base_dir: str, subgraph_dirs=None, num_pairs_per_graph=5, seed=42, transform=None):
-        super(StaticDataObjectSet, self).__init__(transform=transform)
-        self.data_objects = collect_static_data_objects(
-            base_dir=base_dir,
-            subgraph_dirs=subgraph_dirs,
-            num_pairs_per_graph=num_pairs_per_graph,
-            seed=seed,
-        )
 
-    def len(self):
-        return len(self.data_objects)
 
-    def get(self, idx):
-        return self.data_objects[idx]
+
+
+# class StaticDataObjectSet(Dataset):
+#     def __init__(self, base_dir: str, subgraph_dirs=None, num_pairs_per_graph=5, seed=42, transform=None):
+#         super(StaticDataObjectSet, self).__init__(transform=transform)
+#         self.data_objects = collect_static_data_objects(
+#             base_dir=base_dir,
+#             subgraph_dirs=subgraph_dirs,
+#             num_pairs_per_graph=num_pairs_per_graph,
+#             seed=seed,
+#         )
+
+#     def len(self):
+#         return len(self.data_objects)
+
+#     def get(self, idx):
+#         return self.data_objects[idx]
 
 
 if __name__ == "__main__":

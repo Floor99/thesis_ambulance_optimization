@@ -102,16 +102,15 @@ class NoSignalIntersectionPenalty(Penalty):
         
     def __call__(self, **kwargs) -> float:
         has_light_idx = kwargs.get("has_light_idx")
+        wait_time_idx = kwargs.get("wait_time_idx")
         environment = kwargs.get("environment", Environment)
         current_node = kwargs.get("current_node", int)
         
-        degree = len(environment.adjecency_matrix[current_node])
-        if degree < 3:
-            return 0.0
-
-        has_light = environment.states[-1].static_data.x[current_node, has_light_idx].item()
+        has_light = bool(environment.states[-1].static_data.x[current_node, has_light_idx])
+        wait_time = float(environment.states[-1].dynamic_data.x[current_node, wait_time_idx])
+        
         if not has_light:
-            return self.penalty
+            return -wait_time
         return 0.0
 
 

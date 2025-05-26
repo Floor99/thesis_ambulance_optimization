@@ -12,10 +12,13 @@ from thesis_floor_halkes.data_processing.expand_to_min_subgraph import expand_wa
 from thesis_floor_halkes.data_processing.merge_sub_timeseries import merge_timeseries_pipeline
 from thesis_floor_halkes.utils.haversine import haversine
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def get_random_locations_with_traffic_lights(
         nodes_traffic_lights_path: str, 
         seed=42, 
-        num_samples=10
+        num_samples=16
     ):
     traffic_lights = pd.read_parquet(nodes_traffic_lights_path)
     traffic_lights_coords = traffic_lights[['lat', 'lon']].drop_duplicates()
@@ -85,69 +88,66 @@ def generate_train_data(
     measurement_path: str,
     nodes_traffic_lights_path: str,
     base_output_dir: str = "data/training_data",
-    num_samples: int = 5,
+    num_samples: int = 16,
     threshold: float = 25,
     dist: int = 600,
-    seed: int = 0
+    seed: int = 42
 ):
     base = Path(base_output_dir)
     successfully_created = 0
     seed = seed
-    random_nodes_with_traffic_lights = get_random_locations_with_traffic_lights(nodes_traffic_lights_path=nodes_traffic_lights_path,
-                                                                                seed = seed, 
-                                                                                num_samples=num_samples,)
+    random_nodes_with_traffic_lights = get_random_locations_with_traffic_lights(
+        nodes_traffic_lights_path=nodes_traffic_lights_path,
+        seed = seed,
+        num_samples=num_samples,
+    )
     
     coord_dict = {}
     
     for coord in random_nodes_with_traffic_lights:       
     
-        try:
-            # Create subgraph directory
-            subdir = base / f"network_{successfully_created}"
-            subdir.mkdir(parents=True, exist_ok=True)
+        # Create subgraph directory
+        subdir = base / f"network_{successfully_created}"
+        subdir.mkdir(parents=True, exist_ok=True)
 
-            
-            node_features_path = subdir / "node_metadata.parquet"
-            edge_features_path = subdir / "edge_features.parquet"
-            output_path_timeseries = subdir / "timeseries.parquet"
-            G_cons_path = subdir / "G_cons.graphml"
-            G_pt_cons_path = subdir / "G_pt_cons.graphml"
-
-            # Build subgraph
-            G_cons, _ = create_sub_network(
-                nodes_helmond_path=nodes_helmond_path,
-                node_features_path=str(node_features_path),
-                edge_features_path=str(edge_features_path),
-                lat= coord[0],
-                lon= coord[1],
-                G_cons_path= G_cons_path,
-                G_pt_cons_path= G_pt_cons_path,
-                dist=dist,
-            )
-            
-            # Generate timeseries
-            ts = get_timeseries_sub_network(
-                node_features_path=str(node_features_path),
-                meta_path=meta_path,
-                measurement_path=measurement_path,
-                output_path_timeseries=str(output_path_timeseries),
-                threshold=threshold,
-            )
-
-            print(f"‣ Finished subgraph {successfully_created}:")
-            print(f"   • nodes: {G_cons.number_of_nodes()}  edges: {G_cons.number_of_edges()}")
-            print(f"   • timeseries shape: {ts.shape}")
-            coord_dict.update({coord: successfully_created})
-            print(coord_dict)
-
-            successfully_created += 1
-
-        except OverflowError as e:
-            print(f"Error creating subgraph {successfully_created}: {e}")
-            successfully_created += 1
-            continue
         
-    with open(base_output_dir, 'w') as fp:
+        node_features_path = subdir / "node_metadata.parquet"
+        edge_features_path = subdir / "edge_features.parquet"
+        output_path_timeseries = subdir / "timeseries.parquet"
+        G_cons_path = subdir / "G_cons.graphml"
+        G_pt_cons_path = subdir / "G_pt_cons.graphml"
+
+        # Build subgraph
+        G_cons, _ = create_sub_network(
+            nodes_helmond_path=nodes_helmond_path,
+            node_features_path=str(node_features_path),
+            edge_features_path=str(edge_features_path),
+            lat= coord[0],
+            lon= coord[1],
+            G_cons_path= G_cons_path,
+            G_pt_cons_path= G_pt_cons_path,
+            dist=dist,
+        )
+        
+        # Generate timeseries
+        ts = get_timeseries_sub_network(
+            node_features_path=str(node_features_path),
+            meta_path=meta_path,
+            measurement_path=measurement_path,
+            output_path_timeseries=str(output_path_timeseries),
+            threshold=threshold,
+        )
+
+        print(f"‣ Finished subgraph {successfully_created}:")
+        print(f"   • nodes: {G_cons.number_of_nodes()}  edges: {G_cons.number_of_edges()}")
+        print(f"   • timeseries shape: {ts.shape}")
+        coord_dict.update({coord: successfully_created})
+        # tuple keys to strings for JSON serialization
+        
+        successfully_created += 1
+
+    coord_dict = {f"{k[0]}, {k[1]}": v for k, v in coord_dict.items()}
+    with open(f"{base_output_dir}/network_coords.json", 'w') as fp:
         json.dump(coord_dict, fp, indent=4)
 
 
@@ -161,8 +161,6 @@ def get_static_data_object_subgraph(
     G_pt_cons_path: str,
     start_node: int = None,
     end_node: int = None,
-    device: torch.device = torch.device("cpu")
-    
         ):
     
     timeseries = pd.read_parquet(timeseries_subgraph_path)
@@ -219,14 +217,6 @@ def get_static_data_object_subgraph(
     static_data.G_sub = G_cons
     static_data.G_pt = G_pt_cons
     
-    deduped_node_ids = timeseries.drop_duplicates(
-        subset=["node_id"]
-    ).copy()
-    node_id_mapping = dict(
-        zip(deduped_node_ids["node_id"], deduped_node_ids["osmid_original"])
-    )
-    # static_data.node_id_mapping = node_id_mapping
-    
     static_data.timeseries = timeseries
     
     return static_data
@@ -276,6 +266,31 @@ def create_and_save_static_data_objects(
 
     return saved_paths
 
+from torch_geometric.data import Dataset
+
+class StaticDataObjectSet(Dataset):
+    def __init__(self, base_dir: str, transform=None):
+        super(StaticDataObjectSet, self).__init__(transform=transform)
+        self.base_dir = base_dir
+        self.network_dirs = [
+            d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))
+        ]
+        self.file_paths = [ 
+            os.path.join(base_dir, network_dir, file)
+            for network_dir in self.network_dirs
+            for file in os.listdir(os.path.join(base_dir, network_dir))
+            if file.endswith(".pt")
+        ] 
+        
+    def len(self):
+        return len(self.file_paths)
+    
+    def get(self, idx):
+        file_path = self.file_paths[idx]
+        static_data = torch.load(file_path, weights_only=False)
+        static_data.start_node = static_data.start_node.item() if isinstance(static_data.start_node, torch.Tensor) else static_data.start_node
+        static_data.end_node = static_data.end_node.item() if isinstance(static_data.end_node, torch.Tensor) else static_data.end_node
+        return static_data
 
 
 if __name__ == "__main__":
@@ -283,10 +298,10 @@ if __name__ == "__main__":
         nodes_traffic_lights_path="data/processed/traffic_lights_in_helmond.parquet",
         nodes_helmond_path="data/processed_new/helmond_nodes.parquet",
         meta_path="data/processed/intersection_metadata.csv",
-        measurement_path="data/processed/intersection_measurements_31_01_24.csv",)
+        measurement_path="data/processed/intersection_measurements_31_01_24.csv",
+        num_samples=16,)
     
     create_and_save_static_data_objects(
         root_dir="data/training_data",
-        objects_per_network=2,
-        device=torch.device("cpu")
+        objects_per_network=4,
     )

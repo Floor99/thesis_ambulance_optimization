@@ -99,7 +99,7 @@ def build_time_grid(
     times = pd.date_range(
         start=day,
         end=day + pd.Timedelta(hours=23, minutes=45),
-        freq='15T'
+        freq='15min'
     )
     return pd.DataFrame({'timestamp': times})
 
@@ -119,9 +119,12 @@ def cross_join(
 
 def build_final_df(
     df_cross: pd.DataFrame,
-    df_meas: pd.DataFrame
+    df_meas: pd.DataFrame,
+    min_wait_time_no_light: float = 5.0,
+    max_wait_time_no_light: float = 15.0
 ) -> pd.DataFrame:
     """Merge with real measurements and fill missing wait times with peer averages."""
+    np.random.seed(42) 
     df = (
         df_cross
         .merge(
@@ -138,7 +141,9 @@ def build_final_df(
         .reset_index(drop=True)
     )
     df['tlc_name'] = df['tlc_name'].astype('string')
-    df.loc[df['has_light'] == 0, 'wait_time'] = 0.0
+    # df.loc[df['has_light'] == 0, 'wait_time'] = 0.0
+    df.loc[df['has_light'] == 0, 'wait_time'] = np.random.uniform(min_wait_time_no_light, max_wait_time_no_light, size=(df['has_light'] == 0).sum())
+
     return df
 
 

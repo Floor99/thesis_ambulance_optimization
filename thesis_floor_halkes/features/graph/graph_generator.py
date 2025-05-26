@@ -10,7 +10,7 @@ import pandas as pd
 
 ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
 
-timeseries_df = pd.read_parquet("data/processed/node_features_expanded.parquet")
+# timeseries_df = pd.read_parquet("data/processed/node_features_expanded.parquet")
 
 # def create_osmnx_sub_graph_only_inside_helmond(lat, lon, dist, timeseries_df):
 #     unique_timeseries = (timeseries_df.loc[:, ['node_id', 'lat', 'lon']]
