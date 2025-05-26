@@ -39,7 +39,11 @@ def expand_wait_times(df, num_peaks=2, amp_frac=0.1, sigma=1.0):
         peaks = np.zeros_like(t, dtype=float)
         for _ in range(num_peaks):
             center = np.random.uniform(0, 15)
-            height = np.random.uniform(0, amp_frac * avg_k)
+            try:
+                height = np.random.uniform(0, amp_frac * avg_k)
+            except Exception as e:
+                print(f"{amp_frac=}, {avg_k=}, {avg_k1=}, {center=}")
+                raise e
             peaks += height * np.exp(-0.5 * ((t - center) / sigma) ** 2)
                     
         peaks[0] = 0.0  # ensure the first minute stays exact
@@ -62,6 +66,8 @@ def expand_wait_times(df, num_peaks=2, amp_frac=0.1, sigma=1.0):
         group = group.sort_values("timestamp").reset_index(drop=True)
         for i, row in group.iterrows():
             avg_k = row["wait_time"]
+            if not np.isfinite(avg_k):
+                avg_k = 20
             avg_k1 = group.loc[i + 1, "wait_time"] if i < len(group) - 1 else avg_k
             start_ts = row["timestamp"]
             y = expand_block(avg_k, avg_k1)

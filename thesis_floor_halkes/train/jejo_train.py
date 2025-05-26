@@ -22,8 +22,8 @@ from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetterDataFrame
 from thesis_floor_halkes.features.graph.graph_generator import plot_with_route
 # from thesis_floor_halkes.features.static.getter import get_static_data_object
-from thesis_floor_halkes.features.static.new_getter import collect_static_data_objects, StaticDataObjectSet, split_subgraphs
-from thesis_floor_halkes.features.static.static_dataset import StaticListDataset
+from thesis_floor_halkes.features.static.new_getter import collect_static_data_objects, split_subgraphs, get_static_data_object_subgraph
+from thesis_floor_halkes.features.static.final_getter import StaticDataObjectSet
 from thesis_floor_halkes.model.decoder import AttentionDecoder, FixedContext
 from thesis_floor_halkes.model.encoders import StaticGATEncoder, DynamicGATEncoder
 from thesis_floor_halkes.penalties.calculator import RewardModifierCalculator
@@ -72,9 +72,10 @@ def main(cfg: DictConfig):
     mlflow.set_experiment("dynamic_ambulance_training")
     
     base_dir = "data/training_data/small_subgraphs"
+    base_dir = "data/training_data"
     train_dirs, val_dirs, test_dirs = split_subgraphs(base_dir, train_frac=1, val_frac=0.15, seed=42)
     
-    train_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=train_dirs, num_pairs_per_graph = 1, seed = 42)
+    train_set = StaticDataObjectSet(base_dir=base_dir,)
     # train_set.data_objects = train_set.data_objects[:1]
     # val_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=val_dirs, num_pairs_per_graph = 5, seed = 42)
     # test_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=test_dirs, num_pairs_per_graph = 5, seed = 42)
@@ -230,6 +231,8 @@ def main(cfg: DictConfig):
                     print(f"Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(train_loader)}")
                     
                     static_data = batch.get_example(episode)
+                    static_data.start_node = static_data.start_node.item()
+                    static_data.end_node = static_data.end_node.item()
                     env.static_data = static_data
                     state = env.reset()
                     agent.reset()

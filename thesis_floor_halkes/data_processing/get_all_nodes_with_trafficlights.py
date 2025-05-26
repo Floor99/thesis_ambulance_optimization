@@ -88,7 +88,7 @@ def build_nodes_map(
     gdf_nodes: gpd.GeoDataFrame
 ) -> pd.DataFrame:
     """Extract static node-to-light lookup information."""
-    return gdf_nodes[['node_id', 'osmid_original', 'tlc_name', 'lat', 'lon', 'has_light', 'distance_m']].copy()
+    return gdf_nodes[['osmid', 'tlc_name', 'lat', 'lon', 'has_light', 'distance_m']].copy()
 
 
 def build_time_grid(
@@ -99,7 +99,7 @@ def build_time_grid(
     times = pd.date_range(
         start=day,
         end=day + pd.Timedelta(hours=23, minutes=45),
-        freq='15min'
+        freq='15T'
     )
     return pd.DataFrame({'timestamp': times})
 
@@ -119,12 +119,9 @@ def cross_join(
 
 def build_final_df(
     df_cross: pd.DataFrame,
-    df_meas: pd.DataFrame,
-    min_wait_time_no_light: float = 5.0,
-    max_wait_time_no_light: float = 15.0
+    df_meas: pd.DataFrame
 ) -> pd.DataFrame:
     """Merge with real measurements and fill missing wait times with peer averages."""
-    np.random.seed(42) 
     df = (
         df_cross
         .merge(
@@ -137,13 +134,11 @@ def build_final_df(
             wait_time=lambda d: d['wait_time'].fillna(d['peer_avg'])
         )
         .drop(columns='peer_avg')
-        .sort_values(['node_id', 'timestamp'])
+        .sort_values(['osmid', 'timestamp'])
         .reset_index(drop=True)
     )
     df['tlc_name'] = df['tlc_name'].astype('string')
-    # df.loc[df['has_light'] == 0, 'wait_time'] = 0.0
-    df.loc[df['has_light'] == 0, 'wait_time'] = np.random.uniform(min_wait_time_no_light, max_wait_time_no_light, size=(df['has_light'] == 0).sum())
-
+    df.loc[df['has_light'] == 0, 'wait_time'] = 0.0
     return df
 
 
@@ -177,17 +172,23 @@ def merge_timeseries_pipeline(
 
 if __name__ == "__main__":
     meta_path = "data/processed/intersection_metadata.csv"
-    nodes_path = "data/processed_new/subgraph_nodes.parquet"
+    nodes_path = "data/processed_new/helmond_nodes.parquet"
     meas_path = "data/processed/intersection_measurements_31_01_24.csv"
     threshold = 25 
     
-    df_final = merge_timeseries_pipeline(
-        meta_path,
-        nodes_path,
-        meas_path,
-        threshold
+    nodes = pd.read_parquet(nodes_path)
+    
+    print(nodes)
+    
+    lights = merge_timeseries_pipeline(
+        meta_path=meta_path,
+        nodes_path=nodes_path,
+        meas_path=meas_path,
+        threshold=threshold
     )
     
-    print(df_final)
+    lights = lights[lights['has_light'] == 1]
+    
+    lights.to_parquet("data/processed_new/intersection_lights.parquet", index=False)
     
     

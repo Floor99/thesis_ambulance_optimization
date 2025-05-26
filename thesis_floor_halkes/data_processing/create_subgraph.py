@@ -83,6 +83,43 @@ def get_node_features_subgraph(G_cons):
 
     return nodes
 
+def consolidate_edges_to_single(
+    G_multi: MultiDiGraph, weight_attr: str = "length", agg: str = "min"
+) -> MultiDiGraph:
+    """
+    Convert a MultiDiGraph to a MultiDiGraph by collapsing multiple edges (u,v,k)
+    into a single (u,v) edge using aggregation, while preserving geometry and metadata.
+    """
+    G_single = nx.MultiDiGraph()
+    G_single.graph.update(G_multi.graph)
+
+    # Collect edge data
+    edge_groups = {}
+    for u, v, k, data in G_multi.edges(data=True, keys=True):
+        edge_groups.setdefault((u, v), []).append(data)
+
+    # Aggregate each edge group
+    for (u, v), edges in edge_groups.items():
+        if agg == "min":
+            best = min(edges, key=lambda e: e.get(weight_attr, float("inf")))
+        elif agg == "max":
+            best = max(edges, key=lambda e: e.get(weight_attr, float("-inf")))
+        elif agg == "mean":
+            # Pick first for geometry, average numerics
+            base = edges[0].copy()
+            base[weight_attr] = sum(e.get(weight_attr, 0) for e in edges) / len(edges)
+            best = base
+        else:
+            raise ValueError(f"Unknown aggregation method: {agg}")
+
+        G_single.add_edge(u, v, **best)
+
+    # Copy node attributes
+    for node, data in G_multi.nodes(data=True):
+        G_single.add_node(node, **data)
+
+    return G_single
+
 def get_edge_features_subgraph(G_cons):
     """
     From subgraph G_sub, return an edges GeoDataFrame with:
