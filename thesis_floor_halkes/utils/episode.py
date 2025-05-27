@@ -23,11 +23,12 @@ def finish_episode(
     returns = torch.tensor(returns, device=device)
     # if returns.numel() > 1:
     #     returns = (returns - returns.mean()) / (returns.std() + 1e-6)
-
     if baseline_values is not None:
         baseline_values = torch.stack(baseline_values).to(device)
+
         advantages = (returns - baseline_values).detach()
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+        if baseline_values.numel() > 1:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
         baseline_loss = F.mse_loss(baseline_values, returns)
     else:
         print("No baseline model provided. Using returns as advantages.")

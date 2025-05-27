@@ -99,7 +99,7 @@ def build_time_grid(
     times = pd.date_range(
         start=day,
         end=day + pd.Timedelta(hours=23, minutes=45),
-        freq='15min'
+        freq='15T'
     )
     return pd.DataFrame({'timestamp': times})
 
@@ -143,7 +143,11 @@ def build_final_df(
     df['tlc_name'] = df['tlc_name'].astype('string')
     # df.loc[df['has_light'] == 0, 'wait_time'] = 0.0
     df.loc[df['has_light'] == 0, 'wait_time'] = np.random.uniform(min_wait_time_no_light, max_wait_time_no_light, size=(df['has_light'] == 0).sum())
-
+    
+    if df['wait_time'].isnull().any():
+        print("Warning: Some wait times are still NaN after merging. This may indicate missing data for some lights at certain timestamps.")
+        df['wait_time']= df['wait_time'].fillna(df['wait_time'].mean())  
+    
     return df
 
 

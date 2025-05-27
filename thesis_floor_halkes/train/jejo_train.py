@@ -62,26 +62,25 @@ print(f"Using device: {device}")
 
 torch.autograd.set_detect_anomaly(True)
 
-
+from hydra.core.hydra_config import HydraConfig
 # ==== Training Loop with MLFlow Tracking ====
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     os.makedirs("checkpoints", exist_ok=True)
     # ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
     sweep_id = os.environ.get("SWEEP_ID", "no_sweep_id")
-    mlflow.set_experiment("dynamic_ambulance_training")
+    parent_run_id = os.environ.get("MLFLOW_PARENT_RUN_ID")
+    # mlflow.set_experiment("dynamic_ambulance_training")
     
-    base_dir = "data/training_data/small_subgraphs"
-    base_dir = "data/training_data"
-    train_dirs, val_dirs, test_dirs = split_subgraphs(base_dir, train_frac=1, val_frac=0.15, seed=42)
-    
-    train_set = StaticDataObjectSet(base_dir=base_dir,)
+    train_base_dir = "data/training_data/networks"
+    val_base_dir = "data/validation_data/"
+    train_set = StaticDataObjectSet(base_dir=train_base_dir,)
     # train_set.data_objects = train_set.data_objects[:1]
-    # val_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=val_dirs, num_pairs_per_graph = 5, seed = 42)
+    val_set = StaticDataObjectSet(base_dir=val_base_dir)
     # test_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=test_dirs, num_pairs_per_graph = 5, seed = 42)
     
     train_loader = DataLoader(train_set, batch_size=cfg.training.batch_size, shuffle=True)
-    # val_loader = DataLoader(val_set, batch_size=4, shuffle=True)
+    val_loader = DataLoader(val_set, batch_size=cfg.training.batch_size, shuffle=True)
     # test_loader = DataLoader(test_set, batch_size=4, shuffle=True)
     
 
@@ -215,12 +214,34 @@ def main(cfg: DictConfig):
             baseline_optimizer = torch.optim.Adam(
                 agent.baseline.parameters(), lr=cfg.baseline.learning_rate
             )
-
-
-    with mlflow.start_run():
+    from hydra.types import RunMode
+    is_sweep = HydraConfig.get().mode == RunMode.MULTIRUN
+    parent_run_id = os.environ.get("MLFLOW_PARENT_RUN_ID")
+    with mlflow.start_run(
+        run_name="optuna_trial" if is_sweep else "single_run",
+        nested=bool(parent_run_id),
+    ):
+        if parent_run_id:
+            mlflow.set_tag("mlflow.parentRunId", parent_run_id)
+        mlflow.set_tag("is_sweep", str(is_sweep))
+        param_overrides = HydraConfig.get().overrides.task
+        param_overrides = [param.split("=") for param in param_overrides]
+        for k, v in param_overrides:
+            if k.startswith("hydra."):
+                continue
+            if isinstance(v, str) and v.isdigit():
+                v = int(v)
+            elif isinstance(v, str) and v.replace('.', '', 1).isdigit():
+                v = float(v)
+            mlflow.log_param(k, v)
+        
         for epoch in range(cfg.training.num_epochs):
             print(f"Epoch {epoch + 1}/{cfg.training.num_epochs}")
             batch_infos = []
+            agent.static_encoder.train()
+            agent.dynamic_encoder.train()
+            agent.decoder.train()
+            agent.baseline.train() if baseline is not None else None
             
             for batch_idx, batch in enumerate(train_loader):
                 batch = batch.to(device)
@@ -229,10 +250,9 @@ def main(cfg: DictConfig):
 
                 for episode in range(batch.num_graphs):
                     print(f"Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(train_loader)}")
-                    
                     static_data = batch.get_example(episode)
-                    static_data.start_node = static_data.start_node.item()
-                    static_data.end_node = static_data.end_node.item()
+                    static_data.start_node = int(static_data.start_node.item())
+                    static_data.end_node = int(static_data.end_node.item())
                     env.static_data = static_data
                     state = env.reset()
                     agent.reset()
@@ -244,6 +264,7 @@ def main(cfg: DictConfig):
                         "baseline_values": [],
                         "actions": [],
                         "states": [],
+                        "step_travel_time_route": [],
                         "reached_goal": False,
                         "total_loss": None,
                         "policy_loss": None,
@@ -270,6 +291,7 @@ def main(cfg: DictConfig):
                         episode_info["actions"].append(action)
                         episode_info["states"].append(state)
                         episode_info["reached_goal"] = True if terminated else False
+                        episode_info["step_travel_time_route"].append(env.step_travel_time_route[-1])
                         
                         state = next_state
                         if terminated or truncated:
@@ -286,6 +308,7 @@ def main(cfg: DictConfig):
                         gamma=gamma,
                         entropy_coeff=cfg.reinforce.entropy_coeff,
                     )
+                    
                     episode_info["total_loss"] = total_loss
                     episode_info["policy_loss"] = policy_loss
                     episode_info["baseline_loss"] = baseline_loss
@@ -368,6 +391,54 @@ def main(cfg: DictConfig):
                 )
                 batch_infos.append(batch_info)
             
+            agent.static_encoder.eval()
+            agent.dynamic_encoder.eval()
+            agent.decoder.eval()
+            agent.baseline.eval() if baseline is not None else None
+            val_rewards = []
+            val_successes = []
+            val_travel_times = []
+            with torch.no_grad():
+                for batch in val_loader:
+                    batch = batch.to(device)
+                    for episode in range(batch.num_graphs):
+                        static_data = batch.get_example(episode)
+                        static_data.start_node = int(static_data.start_node.item())
+                        static_data.end_node = int(static_data.end_node.item())
+                        env.static_data = static_data
+                        state = env.reset()
+                        agent.reset()
+                        total_reward = 0
+                        total_travel_time = 0
+                        reached_goal = False
+                        for step in range(cfg.training.max_steps):
+                            if len(env.states[-1].valid_actions) == 0:
+                                break
+                            action, _, _ = agent.select_action(state)
+                            next_state, reward, terminated, truncated, _ = env.step(action)
+                            total_reward += reward
+                            total_travel_time += env.step_travel_time_route[-1] + env.modifier_contributions["Waiting Time Penalty"]
+                            state = next_state
+                            if terminated or truncated:
+                                reached_goal = terminated
+                                if not reached_goal:
+                                    total_travel_time += 1000
+                                break
+                        val_rewards.append(total_reward)
+                        val_successes.append(1 if reached_goal else 0)
+                        val_travel_times.append(total_travel_time)
+            
+            # 3. Log validation metrics
+            mlflow.log_metrics(
+                {
+                    "val_mean_reward": np.mean(val_rewards),
+                    "val_successes": np.sum(val_successes),
+                    "val_success_rate": np.mean(val_successes),
+                    "val_mean_travel_time": np.mean(val_travel_times),
+                },
+                step=epoch,
+            )
+            
             # epoch metrics to MLFlow
             epoch_mean_policy_loss = np.mean([batch_info["batch_mean_policy_loss"] for batch_info in batch_infos])
             epoch_mean_baseline_loss = np.mean([batch_info["batch_mean_baseline_loss"] for batch_info in batch_infos if batch_info["batch_mean_baseline_loss"] is not None])
@@ -386,12 +457,23 @@ def main(cfg: DictConfig):
                 },
                 step=epoch,
             )
-
+    
+    # Clear cache, cpu memory, GPU memory and garbage collector
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
+    return np.mean(val_travel_times)
+    
 if __name__ == "__main__":
     sweep_id = f"optuna_sweep_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
     os.environ["SWEEP_ID"] = sweep_id
-    main()
-    if os.environ.get("HYDRA_JOB_NAME") == 'multirun':
-        log_latest_best_params_to_mlflow()
+
+    # Always assume we're in single run; actual check is inside `main()`
+    mlflow.set_experiment("dynamic_ambulance_training")
+    with mlflow.start_run(run_name="optuna_sweep_parent") as parent_run:
+        os.environ["MLFLOW_PARENT_RUN_ID"] = parent_run.info.run_id
+        main()
+    
     
     

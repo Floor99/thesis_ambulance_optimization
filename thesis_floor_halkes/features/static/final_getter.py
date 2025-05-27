@@ -295,7 +295,7 @@ class StaticDataObjectSet(Dataset):
 
 if __name__ == "__main__":
     generate_train_data(
-        nodes_traffic_lights_path="data/processed/traffic_lights_in_helmond.parquet",
+        nodes_traffic_lights_path="data/processed_new/intersection_lights.parquet",
         nodes_helmond_path="data/processed_new/helmond_nodes.parquet",
         meta_path="data/processed/intersection_metadata.csv",
         measurement_path="data/processed/intersection_measurements_31_01_24.csv",
@@ -303,5 +303,21 @@ if __name__ == "__main__":
     
     create_and_save_static_data_objects(
         root_dir="data/training_data",
+        objects_per_network=4,
+    )
+    
+    generate_train_data(
+        nodes_traffic_lights_path="data/processed_new/intersection_lights.parquet",
+        nodes_helmond_path="data/processed_new/helmond_nodes.parquet",
+        meta_path="data/processed/intersection_metadata.csv",
+        measurement_path="data/processed/intersection_measurements_31_01_24.csv",
+        num_samples=4,
+        base_output_dir="data/validation_data",
+        threshold=25,
+        dist=600,
+        seed = 123
+    )
+    create_and_save_static_data_objects(
+        root_dir="data/validation_data",
         objects_per_network=4,
     )

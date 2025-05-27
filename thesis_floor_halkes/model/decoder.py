@@ -80,11 +80,8 @@ class AttentionDecoder(nn.Module):
         # Compute scores for each valid node
         scores = torch.matmul(valid_keys.squeeze(0), attn_output)  # [num_valid]
         scores = scores / torch.sqrt(torch.tensor(self.embed_dim, dtype=torch.float32, device=scores.device))
-        # print(f"Scores shape: {scores.shape}, Valid indices shape: {valid_indices.shape}")
-        # print(f"Scores: {scores}")
         probs = F.softmax(scores, dim=-1)
-        # print(f"Probs shape: {probs.shape}, Valid indices shape: {valid_indices.shape}")
-        # print(f"Probs: {probs}")
+
         assert probs.shape == valid_indices.shape
 
         if greedy:
