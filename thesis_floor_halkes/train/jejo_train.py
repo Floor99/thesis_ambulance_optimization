@@ -385,7 +385,7 @@ def main(cfg: DictConfig):
                                 break
 
                             next_state, terminated, truncated, step_info = execute_step(
-                                env, agent, state, step_info
+                                env, agent, state, step_info, greedy=True
                             )
                             state = next_state
                             if terminated or truncated:
@@ -492,7 +492,7 @@ def main(cfg: DictConfig):
                                 break
 
                             next_state, terminated, truncated, step_info = execute_step(
-                                env, agent, state, step_info
+                                env, agent, state, step_info, greedy=True
                             )
                             state = next_state
                             if terminated or truncated:
@@ -650,8 +650,8 @@ def record_epoch_info(batch_infos: list, cfg: DictConfig):
     return epoch_info
 
 
-def execute_step(env, agent, state, step_info):
-    action, log_prob, entropy = agent.select_action(state)
+def execute_step(env, agent, state, step_info, greedy=False):
+    action, log_prob, entropy = agent.select_action(state, greedy=greedy)
     baseline_value = agent.baseline(agent.final_embedding)
     next_state, reward, terminated, truncated, _ = env.step(action)
 
