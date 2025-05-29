@@ -27,7 +27,7 @@ def finish_episode(
         baseline_values = torch.stack(baseline_values).to(device)
 
         advantages = (returns - baseline_values).detach()
-        if baseline_values.numel() > 1:
+        if advantages.numel() > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
         baseline_loss = F.mse_loss(baseline_values, returns)
     else:
