@@ -10,15 +10,28 @@ hydra:
     direction: maximize
     study_name: sphere
     storage: null
-    n_trials: 20
-    n_jobs: 1
+    n_trials: 4
+    n_jobs: 2
     params:
-      # decoder.num_heads: choice(2, 4, 8)
+      decoder.num_heads: choice(2, 4, 8, 16)
       reward_mod.penalty_per_step_value: choice(-1.0, -5.0, -10.0, -20.0)
+      reward_mod.dead_end_penalty_value: range(-1000, -10, 10)
+      reward_mod.goal_bonus_value: choice(500.0, 1000.0, 2000.0)
+
       decoder.learning_rate: tag(log, interval(1e-4, 1e-1))
+
+      # If you want to tune learning rates individually, uncomment the lines below
+      # and also adjust accordingly in the train script
+      # stat_enc.learning_rate: tag(log, interval(1e-4, 1e-1))
+      # dyn_enc.learning_rate: tag(log, interval(1e-4, 1e-1))
+      # baseline.learning_rate: tag(log, interval(1e-4, 1e-1))
+
+      stat_enc.dropout: interval(0.1, 0.5)
+      dyn_enc.dropout: interval(0.1, 0.5)
+
       reinforce.discount_factor: interval(0.90, 0.999)
       reinforce.entropy_coeff: tag(log, interval(1e-4, 0.1))
-      reinforce.baseline_loss_coeff: tag(log, interval(0.01, 10.0))
+      reinforce.baseline_loss_coeff: tag(log, interval(0.01, 1.0))
 
 decoder:
   num_heads: 8
@@ -44,6 +57,7 @@ dyn_enc:
 
 baseline:
   hidden_size: 256
+  num_layers: 2
   dropout: 0.2
   learning_rate: 0.001
 
@@ -54,13 +68,19 @@ reinforce:
   max_grad_norm: 0.5
 
 training:
-  num_epochs: 1000
+  num_epochs: 3
   batch_size: 1
   max_steps: 80
   patience: 10
   early_stopping: True
   save_best_model: True
   log_interval: 10
+
+score:
+  success_coeff: 0.8
+  travel_time_coeff: 0.2
+  min_time: 0
+  max_time: 1000
 
 reward_mod:
   revisit_penalty_value: -50.0

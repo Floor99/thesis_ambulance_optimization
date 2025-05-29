@@ -162,7 +162,7 @@ def main(cfg: DictConfig):
     ).to(device)
     fixed_context = FixedContext(embed_dim=encoder_output_dim * 2).to(device)
     baseline = CriticBaseline(
-        encoder_output_dim * 2, hidden_dim=cfg.baseline.hidden_size
+        encoder_output_dim * 2, hidden_dim=cfg.baseline.hidden_size, hidden_layers=cfg.baseline.num_layers
     ).to(device)
 
     gamma = cfg.reinforce.discount_factor
@@ -182,16 +182,18 @@ def main(cfg: DictConfig):
             [
                 {
                     "params": agent.static_encoder.parameters(),
-                    "lr": cfg.stat_enc.learning_rate,
+                    "lr": cfg.decoder.learning_rate,
                 },
                 {
                     "params": agent.dynamic_encoder.parameters(),
-                    "lr": cfg.dyn_enc.learning_rate,
+                    "lr": cfg.decoder.learning_rate,
                 },
-                {"params": agent.decoder.parameters(), "lr": cfg.decoder.learning_rate},
+                {
+                    "params": agent.decoder.parameters(),
+                    "lr": cfg.decoder.learning_rate},
                 {
                     "params": agent.baseline.parameters(),
-                    "lr": cfg.baseline.learning_rate,
+                    "lr": cfg.decoder.learning_rate,
                 },
             ]
         )
