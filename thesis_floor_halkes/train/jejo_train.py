@@ -81,6 +81,7 @@ def main(cfg: DictConfig):
 
     train_base_dir = "data/training_data/networks"
     val_base_dir = "data/validation_data/"
+    test_base_dir = "data/validation_data/"
     train_set = StaticDataObjectSet(
         base_dir=train_base_dir,
     )
@@ -88,7 +89,6 @@ def main(cfg: DictConfig):
     # train_set.data_objects = train_set.data_objects[:1]
     val_set = StaticDataObjectSet(base_dir=val_base_dir)
     val_set = val_set[:2]
-    # test_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=test_dirs, num_pairs_per_graph = 5, seed = 42)
 
     train_loader = DataLoader(
         train_set, batch_size=cfg.training.batch_size, shuffle=True
@@ -247,11 +247,12 @@ def main(cfg: DictConfig):
     from hydra.types import RunMode
 
     is_sweep = HydraConfig.get().mode == RunMode.MULTIRUN
+    job_num = HydraConfig.get().job.num if is_sweep else None
     parent_run_id = os.environ.get("MLFLOW_PARENT_RUN_ID")
     with mlflow.start_run(
-        run_name="optuna_trial" if is_sweep else "single_run",
+        run_name=f"optuna_trial_{job_num}" if is_sweep else "single_run",
         nested=bool(parent_run_id),
-    ):
+    ) as run:
         if parent_run_id:
             mlflow.set_tag("mlflow.parentRunId", parent_run_id)
         mlflow.set_tag("is_sweep", str(is_sweep))
@@ -265,7 +266,8 @@ def main(cfg: DictConfig):
             elif isinstance(v, str) and v.replace(".", "", 1).isdigit():
                 v = float(v)
             mlflow.log_param(k, v)
-        val_epoch_success_rate = []
+        val_epoch_scores = []
+        best_val_epoch_score = 0
         for epoch in range(cfg.training.num_epochs):
             print(f"Epoch {epoch + 1}/{cfg.training.num_epochs}")
             batch_infos = []
@@ -466,13 +468,29 @@ def main(cfg: DictConfig):
                     batch_infos.append(batch_info)
 
             epoch_info = record_epoch_info(batch_infos)
+            
+            score = score_function(
+                success_rates=epoch_info["success_rate"],
+                penalized_travel_times=epoch_info["penalized_travel_time_for_each_batch"],
+                success_coeff=cfg.score.success_coeff,
+                penalized_travel_time_coeff=cfg.score.travel_time_coeff,
+                min_time=cfg.score.min_time,
+                max_time=cfg.score.max_time,
+            )
+            val_epoch_scores.append(score)
+            if score > best_val_epoch_score:
+                best_val_epoch_score = score
+                # print(f"New best validation score: {best_val_epoch_score}")
+                mlflow.log_metric("best_val_epoch_score", best_val_epoch_score, step=epoch)
+                mlflow_experiment_name = os.environ["MLFLOW_PARENT_RUN_EXPERIMENT_NAME"]
+                mlflow_parent_run_name = os.environ["MLFLOW_PARENT_RUN_NAME"]
+                mlflow_child_run_name = run.info.run_name
+                locally_save_agent(agent, mlflow_experiment_name, mlflow_parent_run_name, mlflow_child_run_name)
+            
             mlflow_log_epoch_metrics(
                 epoch_info,
                 epoch_step_id,
                 prefix="VAL",
-            )
-            val_epoch_success_rate.append(
-                epoch_info["success_rate"]
             )
 
             # Clear cache, cpu memory, GPU memory and garbage collector
@@ -481,18 +499,32 @@ def main(cfg: DictConfig):
             gc.collect()
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
-        best_val_success_rate = max(val_epoch_success_rate)
-        last_val_success_rate = val_epoch_success_rate[-1]
-        mean_val_success_rate = np.mean(val_epoch_success_rate)
-        print(f"Best validation success rate: {best_val_success_rate}")
-        mlflow.log_metrics({
-            "best_val_success_rate": best_val_success_rate,
-            "last_val_success_rate": last_val_success_rate,
-            "mean_val_success_rate": mean_val_success_rate,
-        })
-    return mean_val_success_rate
+            
+    return best_val_epoch_score
 
 
+def locally_save_agent(agent, experiment_name: str, parent_run:str, child_run:str):
+    # create directory if it doesn't exist
+    os.makedirs(f"saved_models/{experiment_name}/{parent_run}/{child_run}", exist_ok=True)
+    torch.save(agent.static_encoder, f"saved_models/{experiment_name}/{parent_run}/{child_run}/static_encoder.pth")
+    torch.save(agent.dynamic_encoder, f"saved_models/{experiment_name}/{parent_run}/{child_run}/dynamic_encoder.pth")
+    torch.save(agent.decoder, f"saved_models/{experiment_name}/{parent_run}/{child_run}/decoder.pth")
+    torch.save(agent.baseline, f"saved_models/{experiment_name}/{parent_run}/{child_run}/baseline.pth")
+
+
+def score_function(success_rates:list, penalized_travel_times:list, success_coeff:float, penalized_travel_time_coeff:float, min_time:float=0, max_time:float = 1000) -> float:
+    #min max scale penalized_travel_time to [0, 1]
+    penalized_travel_times = np.array(penalized_travel_times)
+    penalized_travel_times = (penalized_travel_times - min_time) / (max_time - min_time)
+    penalized_travel_times = np.clip(penalized_travel_times, 0, 1)
+    
+    # Calculate the score as a weighted sum of success rate and penalized travel time
+    score = (
+        success_coeff * np.mean(success_rates)
+        - penalized_travel_time_coeff * np.mean(penalized_travel_times)
+    )
+    return score
+    
 def mlflow_log_epoch_metrics(
     epoch_info: dict,
     epoch_step_id: int,
@@ -511,6 +543,7 @@ def mlflow_log_epoch_metrics(
     else:
         prefix = f"{prefix}_EPOCH_"
 
+    del epoch_info["penalized_travel_time_for_each_batch"]
     epoch_info = {f"{prefix}{k}": v for k, v in epoch_info.items()}
     mlflow.log_metrics(
         epoch_info,
@@ -541,7 +574,10 @@ def record_epoch_info(batch_infos: list):
     epoch_info["mean_travel_time"] = torch.mean(
         torch.stack([batch_info["mean_travel_time"] for batch_info in batch_infos])
     )
-    print(f"Mean Epoch travel time: {epoch_info['mean_travel_time']}")
+    epoch_info["penalized_travel_time_for_each_batch"] = [
+        batch_info["mean_travel_time_with_penalty"]
+        for batch_info in batch_infos
+    ]
     return epoch_info
 
 
@@ -617,6 +653,19 @@ def record_batch_info(episode_infos):
             ]
         )
     )
+    
+    # if not reached goal, travel time is 1000, else travel time
+    batch_info["mean_travel_time_with_penalty"] = torch.mean(
+        torch.stack(
+            [
+                torch.sum(torch.tensor(info["step_travel_time_route"]))
+                if info["reached_goal"]
+                else torch.tensor(1000.0)
+                for info in episode_infos
+            ]
+        )
+    ).clone().detach().cpu().item()
+    
     return batch_info
 
 
@@ -761,11 +810,13 @@ def record_step_info(
 
 
 if __name__ == "__main__":
-    sweep_id = f"optuna_sweep_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
+    sweep_id = f"{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
     os.environ["SWEEP_ID"] = sweep_id
 
     # Always assume we're in single run; actual check is inside `main()`
-    mlflow.set_experiment("dynamic_ambulance_training")
-    with mlflow.start_run(run_name="optuna_sweep_parent") as parent_run:
+    experiment = mlflow.set_experiment("dynamic_ambulance_training")
+    with mlflow.start_run(run_name=f"{sweep_id}") as parent_run:
         os.environ["MLFLOW_PARENT_RUN_ID"] = parent_run.info.run_id
+        os.environ["MLFLOW_PARENT_RUN_NAME"] = parent_run.info.run_name
+        os.environ["MLFLOW_PARENT_RUN_EXPERIMENT_NAME"] = experiment.name
         main()
