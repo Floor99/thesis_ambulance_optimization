@@ -311,7 +311,7 @@ def main(cfg: DictConfig):
                     if skip_episode:
                         continue
 
-                    total_loss, policy_loss, baseline_loss, entropy_loss = (
+                    total_loss, policy_loss, baseline_loss, entropy_loss, advantages, discounted_returns = (
                         finish_episode(
                             rewards=step_info["rewards"],
                             action_log_probs=step_info["action_log_probs"],
@@ -324,7 +324,7 @@ def main(cfg: DictConfig):
                     )
 
                     episode_info = record_episode_info(
-                        step_info, total_loss, policy_loss, baseline_loss, entropy_loss
+                        step_info, total_loss, policy_loss, baseline_loss, entropy_loss, advantages, discounted_returns
                     )
                     episode_infos.append(episode_info)
 
@@ -414,7 +414,7 @@ def main(cfg: DictConfig):
                         if skip_episode:
                             continue
 
-                        total_loss, policy_loss, baseline_loss, entropy_loss = (
+                        total_loss, policy_loss, baseline_loss, entropy_loss, advantages, discounted_returns = (
                             finish_episode(
                                 rewards=step_info["rewards"],
                                 action_log_probs=step_info["action_log_probs"],
@@ -432,6 +432,8 @@ def main(cfg: DictConfig):
                             policy_loss,
                             baseline_loss,
                             entropy_loss,
+                            advantages,
+                            discounted_returns,
                         )
                         episode_infos.append(episode_info)
 
@@ -515,7 +517,7 @@ def execute_step(env, agent, state, step_info):
     step_info = record_step_info(
         step_info,
         env,
-        state,
+        next_state,
         action,
         log_prob,
         entropy,
@@ -652,7 +654,6 @@ def mlflow_log_episode_metrics(
         episode_metrics,
         step=step_id,
     )
-
     table = pd.DataFrame(episode_info[f"penalty_contributions"])
     table["policy_loss"] = episode_metrics[f"{prefix}policy_loss"]
     table["baseline_loss"] = episode_metrics[f"{prefix}baseline_loss"]
@@ -663,6 +664,14 @@ def mlflow_log_episode_metrics(
     table["num_steps"] = episode_metrics[f"{prefix}num_steps"]
     table["route"] = episode_info[f"route"]
     table["success"] = 1 if episode_info[f"reached_goal"] else 0
+    table["action_log_probs"] = [info.clone().detach().cpu().item() for info in episode_info["action_log_probs"]]
+    table["entropies"] = [info.clone().detach().cpu().item() for info in episode_info["entropies"]]
+    table["baseline_values"] = [info.clone().detach().cpu().item() for info in episode_info["baseline_values"]]
+    table["rewards"] = episode_info["rewards"]
+    table["advantages"] = [info.clone().detach().cpu().item() for info in episode_info["advantages"]]
+    table["discounted_returns"] = [info.clone().detach().cpu().item() for info in episode_info["discounted_returns"]]
+    table["step_travel_time_route"] = [info.clone().detach().cpu().item() for info in episode_info["step_travel_time_route"]]
+    
     mlflow.log_table(
         data=table,
         artifact_file=f"{prefix}epoch_{epoch_id}/batch_{batch_id}/episode_{episode_id}_{graph_id}.json",
@@ -670,13 +679,15 @@ def mlflow_log_episode_metrics(
 
 
 def record_episode_info(
-    step_info, total_loss, policy_loss, baseline_loss, entropy_loss
+    step_info, total_loss, policy_loss, baseline_loss, entropy_loss, advantages, discounted_returns
 ):
     episode_info = {}
     episode_info["total_loss"] = total_loss
     episode_info["policy_loss"] = policy_loss
     episode_info["baseline_loss"] = baseline_loss
     episode_info["entropy_loss"] = entropy_loss
+    episode_info["discounted_returns"]  = discounted_returns
+    episode_info["advantages"] = advantages
 
     episode_info = episode_info | step_info
     return episode_info

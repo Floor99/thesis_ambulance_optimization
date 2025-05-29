@@ -41,4 +41,4 @@ def finish_episode(
     entropy_loss = torch.stack(entropies).mean()
     policy_loss = policy_loss - entropy_coeff * entropy_loss
     total_loss = policy_loss + (baseline_weight * baseline_loss)
-    return total_loss, policy_loss, baseline_loss, entropy_loss
+    return total_loss, policy_loss, baseline_loss, entropy_loss, advantages, returns
