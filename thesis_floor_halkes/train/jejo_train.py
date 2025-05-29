@@ -87,6 +87,7 @@ def main(cfg: DictConfig):
     train_set = train_set[:2]
     # train_set.data_objects = train_set.data_objects[:1]
     val_set = StaticDataObjectSet(base_dir=val_base_dir)
+    val_set = val_set[:2]
     # test_set = StaticDataObjectSet(base_dir=base_dir, subgraph_dirs=test_dirs, num_pairs_per_graph = 5, seed = 42)
 
     train_loader = DataLoader(
@@ -264,7 +265,7 @@ def main(cfg: DictConfig):
             elif isinstance(v, str) and v.replace(".", "", 1).isdigit():
                 v = float(v)
             mlflow.log_param(k, v)
-
+        val_epoch_success_rate = []
         for epoch in range(cfg.training.num_epochs):
             print(f"Epoch {epoch + 1}/{cfg.training.num_epochs}")
             batch_infos = []
@@ -470,6 +471,9 @@ def main(cfg: DictConfig):
                 epoch_step_id,
                 prefix="VAL",
             )
+            val_epoch_success_rate.append(
+                epoch_info["success_rate"]
+            )
 
             # Clear cache, cpu memory, GPU memory and garbage collector
             import gc
@@ -477,8 +481,16 @@ def main(cfg: DictConfig):
             gc.collect()
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
-
-    return 
+        best_val_success_rate = max(val_epoch_success_rate)
+        last_val_success_rate = val_epoch_success_rate[-1]
+        mean_val_success_rate = np.mean(val_epoch_success_rate)
+        print(f"Best validation success rate: {best_val_success_rate}")
+        mlflow.log_metrics({
+            "best_val_success_rate": best_val_success_rate,
+            "last_val_success_rate": last_val_success_rate,
+            "mean_val_success_rate": mean_val_success_rate,
+        })
+    return mean_val_success_rate
 
 
 def mlflow_log_epoch_metrics(
