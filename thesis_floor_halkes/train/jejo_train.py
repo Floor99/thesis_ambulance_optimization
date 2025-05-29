@@ -75,26 +75,24 @@ from hydra.core.hydra_config import HydraConfig
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     os.makedirs("checkpoints", exist_ok=True)
-    # ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
     parent_run_id = os.environ.get("MLFLOW_PARENT_RUN_ID")
-    # mlflow.set_experiment("dynamic_ambulance_training")
 
     train_base_dir = "data/training_data/networks"
     val_base_dir = "data/validation_data/"
     test_base_dir = "data/validation_data/"
-    train_set = StaticDataObjectSet(
-        base_dir=train_base_dir,
-    )
+
+    train_set = StaticDataObjectSet(base_dir=train_base_dir)
     train_set = train_set[:2]
-    # train_set.data_objects = train_set.data_objects[:1]
+
     val_set = StaticDataObjectSet(base_dir=val_base_dir)
     val_set = val_set[:2]
 
-    train_loader = DataLoader(
-        train_set, batch_size=cfg.training.batch_size, shuffle=True
-    )
+    test_set = StaticDataObjectSet(base_dir=test_base_dir)
+    test_set = test_set[:2]
+    
+    train_loader = DataLoader(train_set, batch_size=cfg.training.batch_size, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=cfg.training.batch_size, shuffle=True)
-    # test_loader = DataLoader(test_set, batch_size=4, shuffle=True)
+    test_loader = DataLoader(test_set, batch_size=cfg.training.batch_size, shuffle=True)
 
     dynamic_node_idx = {
         "status": 0,
@@ -266,8 +264,9 @@ def main(cfg: DictConfig):
             elif isinstance(v, str) and v.replace(".", "", 1).isdigit():
                 v = float(v)
             mlflow.log_param(k, v)
-        val_epoch_scores = []
+
         best_val_epoch_score = 0
+
         for epoch in range(cfg.training.num_epochs):
             print(f"Epoch {epoch + 1}/{cfg.training.num_epochs}")
             batch_infos = []
@@ -375,7 +374,7 @@ def main(cfg: DictConfig):
                 )
                 mlflow_log_batch_metrics(batch_info, batch_step_id, prefix="TRAIN")
 
-            epoch_info = record_epoch_info(batch_infos)
+            epoch_info = record_epoch_info(batch_infos, cfg)
             epoch_step_id = epoch
             mlflow_log_epoch_metrics(epoch_info, epoch_step_id, prefix="TRAIN")
 
@@ -467,17 +466,9 @@ def main(cfg: DictConfig):
                     batch_info = record_batch_info(episode_infos)
                     batch_infos.append(batch_info)
 
-            epoch_info = record_epoch_info(batch_infos)
+            epoch_info = record_epoch_info(batch_infos, cfg)
             
-            score = score_function(
-                success_rates=epoch_info["success_rate"],
-                penalized_travel_times=epoch_info["penalized_travel_time_for_each_batch"],
-                success_coeff=cfg.score.success_coeff,
-                penalized_travel_time_coeff=cfg.score.travel_time_coeff,
-                min_time=cfg.score.min_time,
-                max_time=cfg.score.max_time,
-            )
-            val_epoch_scores.append(score)
+            score = epoch_info["scoring"]
             if score > best_val_epoch_score:
                 best_val_epoch_score = score
                 # print(f"New best validation score: {best_val_epoch_score}")
@@ -491,6 +482,104 @@ def main(cfg: DictConfig):
                 epoch_info,
                 epoch_step_id,
                 prefix="VAL",
+            )
+            
+            
+            agent.static_encoder.eval()
+            agent.dynamic_encoder.eval()
+            agent.decoder.eval()
+            agent.baseline.eval() if baseline is not None else None
+            batch_infos = []
+            with torch.no_grad():
+                for batch_idx, batch in enumerate(test_loader):
+                    batch = batch.to(device)
+                    episode_infos = []
+                    skip_episode = False
+
+                    for episode in range(batch.num_graphs):
+                        print(
+                            f"Test Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(test_loader)}"
+                        )
+                        static_data = batch.get_example(episode)
+                        static_data.start_node = int(static_data.start_node.item())
+                        static_data.end_node = int(static_data.end_node.item())
+                        env.static_data = static_data
+                        state = env.reset()
+                        agent.reset()
+
+                        step_info = {}
+
+                        for step in range(cfg.training.max_steps):
+                            # print(f"Step {step + 1}/{cfg.training.max_steps}")
+
+                            if len(env.states[-1].valid_actions) == 0:
+                                print(
+                                    f"Graph {episode} has no valid actions. Skipping episode."
+                                )
+                                skip_episode = True
+                                break
+
+                            next_state, terminated, truncated, step_info = execute_step(
+                                env, agent, state, step_info
+                            )
+                            state = next_state
+                            if terminated or truncated:
+                                break
+
+                        if skip_episode:
+                            continue
+
+                        total_loss, policy_loss, baseline_loss, entropy_loss, advantages, discounted_returns = (
+                            finish_episode(
+                                rewards=step_info["rewards"],
+                                action_log_probs=step_info["action_log_probs"],
+                                entropies=step_info["entropies"],
+                                baseline_weight=cfg.reinforce.baseline_loss_coeff,
+                                baseline_values=step_info["baseline_values"],
+                                gamma=gamma,
+                                entropy_coeff=cfg.reinforce.entropy_coeff,
+                            )
+                        )
+
+                        episode_info = record_episode_info(
+                            step_info, total_loss, policy_loss, baseline_loss, entropy_loss, advantages, discounted_returns
+                        )
+                        episode_infos.append(episode_info)
+
+                        episode_step_id = (
+                            episode
+                            + batch_idx * train_loader.batch_size
+                            + epoch * len(train_set)
+                        )
+                        mlflow_log_episode_metrics(
+                            episode_info,
+                            epoch_id=epoch,
+                            batch_id=batch_idx,
+                            episode_id=episode,
+                            graph_id=env.static_data.graph_id,
+                            step_id=episode_step_id,
+                            prefix="TEST",
+                            exclude_metrics=[
+                                "total_loss",
+                                "policy_loss",
+                                "baseline_loss",
+                                "entropy_loss",
+                                "reached_goal",
+                                "num_steps",
+                                "reward",
+                            ]
+                        )
+
+                    batch_info = record_batch_info(episode_infos)
+                    batch_infos.append(batch_info)
+
+            epoch_info = record_epoch_info(batch_infos, cfg)
+            score = epoch_info["scoring"]
+            
+            mlflow_log_epoch_metrics(
+                epoch_info,
+                epoch_step_id,
+                prefix="TEST",
             )
 
             # Clear cache, cpu memory, GPU memory and garbage collector
@@ -551,7 +640,7 @@ def mlflow_log_epoch_metrics(
     )
 
 
-def record_epoch_info(batch_infos: list):
+def record_epoch_info(batch_infos: list, cfg: DictConfig):
     epoch_info = {}
     epoch_info["mean_policy_loss"] = torch.mean(
         torch.stack([batch_info["mean_policy_loss"] for batch_info in batch_infos])
@@ -578,6 +667,14 @@ def record_epoch_info(batch_infos: list):
         batch_info["mean_travel_time_with_penalty"]
         for batch_info in batch_infos
     ]
+    epoch_info["scoring"] = score_function(
+        success_rates=[batch_info["success_rate"] for batch_info in batch_infos],
+        penalized_travel_times=epoch_info["penalized_travel_time_for_each_batch"],
+        success_coeff=cfg.score.success_coeff,
+        penalized_travel_time_coeff=cfg.score.travel_time_coeff,
+        min_time=cfg.score.min_time,
+        max_time=cfg.score.max_time,
+    )
     return epoch_info
 
 
