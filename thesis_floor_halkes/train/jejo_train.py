@@ -1,33 +1,17 @@
-from dataclasses import dataclass
 import datetime
-import json
 import math
-import random
 import hydra
-from matplotlib import pyplot as plt
 import numpy as np
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 import pandas as pd
 import torch
 import mlflow
-import mlflow.pytorch
-import osmnx as ox
 import os
-from torch.nn.utils import clip_grad_norm_
 from torch_geometric.loader import DataLoader
-from torch_geometric.data import Data
-from torch.utils.data import random_split
 
 from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetterDataFrame
-from thesis_floor_halkes.features.graph.graph_generator import plot_with_route
 
-# from thesis_floor_halkes.features.static.getter import get_static_data_object
-from thesis_floor_halkes.features.static.new_getter import (
-    collect_static_data_objects,
-    split_subgraphs,
-    get_static_data_object_subgraph,
-)
 from thesis_floor_halkes.features.static.final_getter import StaticDataObjectSet
 from thesis_floor_halkes.model.decoder import AttentionDecoder, FixedContext
 from thesis_floor_halkes.model.encoders import StaticGATEncoder, DynamicGATEncoder
@@ -44,21 +28,9 @@ from thesis_floor_halkes.penalties.revisit_node_penalty import (
     WaitTimePenalty,
 )
 from thesis_floor_halkes.baselines.critic_network import CriticBaseline
-from thesis_floor_halkes.train.mlflow_utils import (
-    flatten_dict,
-    get_nested,
-    log_agent_checkpoint,
-    log_episode_artifacts,
-    log_full_models,
-    log_gradient_norms,
-    log_latest_best_params_to_mlflow,
-)
-from thesis_floor_halkes.utils.adj_matrix import build_adjecency_matrix
+
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
 from thesis_floor_halkes.utils.episode import finish_episode
-from thesis_floor_halkes.utils.reward_logger import RewardLogger
-from thesis_floor_halkes.benchmarks.simulate_dijkstra import simulate_dijkstra_path_cost
-from thesis_floor_halkes.utils.plot_graph import plot_graph
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")  # For testing purposes, use CPU
