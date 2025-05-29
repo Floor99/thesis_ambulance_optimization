@@ -28,6 +28,7 @@ hydra:
 
       stat_enc.dropout: interval(0.1, 0.5)
       dyn_enc.dropout: interval(0.1, 0.5)
+      baseline.dropout: interval(0.1, 0.5)
 
       reinforce.discount_factor: interval(0.90, 0.999)
       reinforce.entropy_coeff: tag(log, interval(1e-4, 0.1))
