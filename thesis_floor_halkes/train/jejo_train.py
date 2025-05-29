@@ -373,22 +373,24 @@ def main(cfg: DictConfig):
                 mlflow_log_batch_metrics(batch_info, batch_step_id, prefix="TRAIN")
 
             epoch_info = record_epoch_info(batch_infos)
-            epoch_step_id = epoch + 1
+            epoch_step_id = epoch
             mlflow_log_epoch_metrics(epoch_info, epoch_step_id, prefix="TRAIN")
 
             agent.static_encoder.eval()
             agent.dynamic_encoder.eval()
             agent.decoder.eval()
             agent.baseline.eval() if baseline is not None else None
-
+            batch_infos = []
             with torch.no_grad():
                 for batch_idx, batch in enumerate(val_loader):
-                    print(f"Validation Batch {batch_idx + 1}/{len(val_loader)}")
                     batch = batch.to(device)
                     episode_infos = []
                     skip_episode = False
 
                     for episode in range(batch.num_graphs):
+                        print(
+                            f"Validation Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(val_loader)}"
+                        )
                         static_data = batch.get_example(episode)
                         static_data.start_node = int(static_data.start_node.item())
                         static_data.end_node = int(static_data.end_node.item())
@@ -396,7 +398,11 @@ def main(cfg: DictConfig):
                         state = env.reset()
                         agent.reset()
 
+                        step_info = {}
+
                         for step in range(cfg.training.max_steps):
+                            # print(f"Step {step + 1}/{cfg.training.max_steps}")
+
                             if len(env.states[-1].valid_actions) == 0:
                                 print(
                                     f"Graph {episode} has no valid actions. Skipping episode."
@@ -408,9 +414,9 @@ def main(cfg: DictConfig):
                                 env, agent, state, step_info
                             )
                             state = next_state
-
                             if terminated or truncated:
                                 break
+
                         if skip_episode:
                             continue
 
@@ -427,15 +433,33 @@ def main(cfg: DictConfig):
                         )
 
                         episode_info = record_episode_info(
-                            step_info,
-                            total_loss,
-                            policy_loss,
-                            baseline_loss,
-                            entropy_loss,
-                            advantages,
-                            discounted_returns,
+                            step_info, total_loss, policy_loss, baseline_loss, entropy_loss, advantages, discounted_returns
                         )
                         episode_infos.append(episode_info)
+
+                        episode_step_id = (
+                            episode
+                            + batch_idx * train_loader.batch_size
+                            + epoch * len(train_set)
+                        )
+                        mlflow_log_episode_metrics(
+                            episode_info,
+                            epoch_id=epoch,
+                            batch_id=batch_idx,
+                            episode_id=episode,
+                            graph_id=env.static_data.graph_id,
+                            step_id=episode_step_id,
+                            prefix="VAL",
+                            exclude_metrics=[
+                                "total_loss",
+                                "policy_loss",
+                                "baseline_loss",
+                                "entropy_loss",
+                                "reached_goal",
+                                "num_steps",
+                                "reward",
+                            ]
+                        )
 
                     batch_info = record_batch_info(episode_infos)
                     batch_infos.append(batch_info)
@@ -454,7 +478,7 @@ def main(cfg: DictConfig):
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
 
-    return 0
+    return 
 
 
 def mlflow_log_epoch_metrics(
@@ -626,14 +650,6 @@ def mlflow_log_episode_metrics(
     prefix=None,
     exclude_metrics: list = None,
 ):
-    if exclude_metrics is not None:
-        assert isinstance(exclude_metrics, list), "exclude_metrics should be a list"
-        for metric in exclude_metrics:
-            if metric in episode_info:
-                del episode_info[metric]
-            else:
-                raise KeyError(f"Metric {metric} not found in episode_info")
-
     if prefix is None:
         prefix = "EPISODE_"
     else:
@@ -648,20 +664,33 @@ def mlflow_log_episode_metrics(
         f"num_steps": len(episode_info["rewards"]),
         f"reward": sum(episode_info["rewards"]),
     }
-    episode_metrics = {f"{prefix}{k}": v for k, v in episode_metrics.items()}
+    if exclude_metrics is not None:
+        assert isinstance(exclude_metrics, list), "exclude_metrics should be a list"
+        remaining_metrics_keys = set(episode_metrics.keys()) - set(exclude_metrics)
+        remaining_metrics = {k: episode_metrics[k] for k in remaining_metrics_keys}
+        remaining_metrics = {f"{prefix}{k}": v for k, v in remaining_metrics.items()}
+        mlflow.log_metrics(
+            remaining_metrics,
+            step=step_id,
+        )
+    else:
+        # If no metrics are excluded, log all metrics with the prefix
 
-    mlflow.log_metrics(
-        episode_metrics,
-        step=step_id,
-    )
+        episode_metrics_with_prefix = {f"{prefix}{k}": v for k, v in episode_metrics.items()}
+
+        mlflow.log_metrics(
+            episode_metrics_with_prefix,
+            step=step_id,
+        )
+
     table = pd.DataFrame(episode_info[f"penalty_contributions"])
-    table["policy_loss"] = episode_metrics[f"{prefix}policy_loss"]
-    table["baseline_loss"] = episode_metrics[f"{prefix}baseline_loss"]
-    table["entropy_loss"] = episode_metrics[f"{prefix}entropy_loss"]
-    table["total_loss"] = episode_metrics[f"{prefix}total_loss"]
-    table["total_reward"] = episode_metrics[f"{prefix}reward"]
-    table["reached_goal"] = episode_metrics[f"{prefix}reached_goal"]
-    table["num_steps"] = episode_metrics[f"{prefix}num_steps"]
+    table["policy_loss"] = episode_metrics[f"policy_loss"]
+    table["baseline_loss"] = episode_metrics[f"baseline_loss"]
+    table["entropy_loss"] = episode_metrics[f"entropy_loss"]
+    table["total_loss"] = episode_metrics[f"total_loss"]
+    table["total_reward"] = episode_metrics[f"reward"]
+    table["reached_goal"] = episode_metrics[f"reached_goal"]
+    table["num_steps"] = episode_metrics[f"num_steps"]
     table["route"] = episode_info[f"route"]
     table["success"] = 1 if episode_info[f"reached_goal"] else 0
     table["action_log_probs"] = [info.clone().detach().cpu().item() for info in episode_info["action_log_probs"]]
