@@ -55,7 +55,7 @@ from thesis_floor_halkes.utils.reward_logger import RewardLogger
 from thesis_floor_halkes.benchmarks.simulate_dijkstra import simulate_dijkstra_path_cost
 from thesis_floor_halkes.utils.plot_graph import plot_graph
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")  # For testing purposes, use CPU
+# device = torch.device("cpu")  # For testing purposes, use CPU
 
 print(f"Using device: {device}")
 
@@ -68,7 +68,6 @@ from hydra.core.hydra_config import HydraConfig
 def main(cfg: DictConfig):
     os.makedirs("checkpoints", exist_ok=True)
     # ox.settings.bidirectional_network_types = ["drive", "walk", "bike"]
-    sweep_id = os.environ.get("SWEEP_ID", "no_sweep_id")
     parent_run_id = os.environ.get("MLFLOW_PARENT_RUN_ID")
     # mlflow.set_experiment("dynamic_ambulance_training")
     
@@ -262,9 +261,10 @@ def main(cfg: DictConfig):
                         "action_log_probs": [],
                         "entropies": [],
                         "baseline_values": [],
-                        "actions": [],
+                        "route": [],
                         "states": [],
                         "step_travel_time_route": [],
+                        "penalty_contributions": [],
                         "reached_goal": False,
                         "total_loss": None,
                         "policy_loss": None,
@@ -283,19 +283,22 @@ def main(cfg: DictConfig):
                         action, log_prob, entropy = agent.select_action(state)
                         baseline_value = agent.baseline(agent.final_embedding)
                         next_state, reward, terminated, truncated, _ = env.step(action)
-
-                        episode_info["rewards"].append(reward)
+                        
+                        episode_info["rewards"].append(reward.clone().detach().cpu().item())
                         episode_info["action_log_probs"].append(log_prob)
                         episode_info["entropies"].append(entropy)
                         episode_info["baseline_values"].append(baseline_value)
-                        episode_info["actions"].append(action)
+                        episode_info["route"].append(action)
                         episode_info["states"].append(state)
                         episode_info["reached_goal"] = True if terminated else False
                         episode_info["step_travel_time_route"].append(env.step_travel_time_route[-1])
+                        episode_info["penalty_contributions"].append(env.modifier_contributions)
                         
                         state = next_state
+
                         if terminated or truncated:
                             break
+
                     if skip_episode:
                         continue
                     
@@ -315,18 +318,32 @@ def main(cfg: DictConfig):
                     episode_info["entropy_loss"] = entropy_loss
                     episode_infos.append(episode_info)
                     
-                    # Log metrics to MLFlow
+                    episode_metrics = {
+                        "total_loss": total_loss.clone().detach().cpu().item(),
+                        "policy_loss": policy_loss.clone().detach().cpu().item(),
+                        "baseline_loss": baseline_loss.clone().detach().cpu().item(),
+                        "entropy_loss": entropy_loss.clone().detach().cpu().item(),
+                        "reached_goal": int(episode_info["reached_goal"]),
+                        "num_steps": len(episode_info["rewards"]),
+                        "reward": sum(episode_info["rewards"]),
+                    }
                     mlflow.log_metrics(
-                        {
-                            "total_loss": total_loss.clone().detach().cpu().item(),
-                            "policy_loss": policy_loss.clone().detach().cpu().item(),
-                            "baseline_loss": baseline_loss.clone().detach().cpu().item(),
-                            "entropy_loss": entropy_loss.clone().detach().cpu().item(),
-                            "reached_goal": int(episode_info["reached_goal"]),
-                            "num_steps": len(episode_info["rewards"]),
-                            "reward": sum(episode_info["rewards"]),
-                        },
+                        episode_metrics,
                         step=epoch * len(train_set) + batch_idx * train_loader.batch_size + episode,
+                    )
+                    table = pd.DataFrame(episode_info["penalty_contributions"])
+                    table["policy_loss"] = episode_metrics["policy_loss"]
+                    table["baseline_loss"] = episode_metrics["baseline_loss"]
+                    table["entropy_loss"] = episode_metrics["entropy_loss"]
+                    table["total_loss"] = episode_metrics["total_loss"]
+                    table["reward"] = episode_metrics["reward"]
+                    table["reached_goal"] = episode_metrics["reached_goal"]
+                    table["num_steps"] = episode_metrics["num_steps"]
+                    table["route"]  = episode_info["route"]
+                    table["success"] = 1 if episode_info["reached_goal"] else 0
+                    mlflow.log_table(
+                        data=table,
+                        artifact_file=f"epoch+{epoch}/batch_{batch_idx}/episode_{episode}_{env.static_data.graph_id}.json",
                     )
                     
                     episode_infos.append(episode_info)

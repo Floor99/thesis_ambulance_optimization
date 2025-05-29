@@ -290,7 +290,10 @@ class StaticDataObjectSet(Dataset):
         static_data = torch.load(file_path, weights_only=False)
         static_data.start_node = static_data.start_node.item() if isinstance(static_data.start_node, torch.Tensor) else static_data.start_node
         static_data.end_node = static_data.end_node.item() if isinstance(static_data.end_node, torch.Tensor) else static_data.end_node
-        return static_data
+        graph_id = os.path.basename(file_path)[:-3]  # Remove '.pt' from the end
+        static_data.graph_id = graph_id
+        print(graph_id)
+        return static_data 
 
 
 if __name__ == "__main__":

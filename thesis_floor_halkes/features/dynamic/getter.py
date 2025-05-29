@@ -98,15 +98,14 @@ class DynamicFeatureGetterDataFrame(DynamicFeatureGetter):
         df_t = sub_node_df[sub_node_df["timestamp"] == t].sort_values("node_id")
 
         wait_times = torch.tensor(df_t["wait_time"].values, dtype=torch.float, device=device)
-        # print(f"wait_times: {wait_times= }")
         num_nodes = environment.static_data.num_nodes
 
         has_light = environment.static_data.x[:, traffic_light_idx].bool()
-        # rand_bits = torch.randint(0, 2, (num_nodes,), dtype=torch.bool)
-        # light_status = (rand_bits & has_light).to(torch.float)
+        rand_bits = torch.randint(0, 2, (num_nodes,), dtype=torch.bool, device=device)  # get random bits
+        light_status = (rand_bits & has_light).to(torch.float)
         
         # set light status to red
-        light_status = torch.zeros(num_nodes, device=device)
+        # light_status = torch.zeros(num_nodes, device=device)
 
         is_current_node = torch.zeros(num_nodes, device=device)
         is_current_node[current_node] = 1.0
