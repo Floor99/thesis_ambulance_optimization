@@ -31,6 +31,7 @@ from thesis_floor_halkes.baselines.critic_network import CriticBaseline
 
 from thesis_floor_halkes.agent.dynamic import DynamicAgent
 from thesis_floor_halkes.utils.episode import finish_episode
+from joblib.externals.loky.backend.context import get_context
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")  # For testing purposes, use CPU
@@ -38,7 +39,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 
-torch.autograd.set_detect_anomaly(True)
+# torch.autograd.set_detect_anomaly(True)
 
 from hydra.core.hydra_config import HydraConfig
 
@@ -49,22 +50,46 @@ def main(cfg: DictConfig):
     os.makedirs("checkpoints", exist_ok=True)
     parent_run_id = os.environ.get("MLFLOW_PARENT_RUN_ID")
 
-    train_base_dir = "data/training_data/networks"
-    val_base_dir = "data/validation_data/"
-    test_base_dir = "data/validation_data/"
+    train_base_dir = "data/training_data_2/"
+    val_base_dir = "data/validation_data_2/"
+    test_base_dir = "data/test_data_2/"
 
     train_set = StaticDataObjectSet(base_dir=train_base_dir)
-    train_set = train_set[:2]
+    # train_set = train_set[:]
 
     val_set = StaticDataObjectSet(base_dir=val_base_dir)
-    val_set = val_set[:2]
+    # val_set = val_set[:]
 
     test_set = StaticDataObjectSet(base_dir=test_base_dir)
-    test_set = test_set[:2]
+    # test_set = test_set[:]
     
-    train_loader = DataLoader(train_set, batch_size=cfg.training.batch_size, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=cfg.training.batch_size, shuffle=True)
-    test_loader = DataLoader(test_set, batch_size=cfg.training.batch_size, shuffle=True)
+    train_loader = DataLoader(
+        train_set,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+        # num_workers = 8,
+        # prefetch_factor=4,
+        # multiprocessing_context=get_context('loky')
+        # persistent_workers=True
+    )
+    val_loader = DataLoader(
+        val_set,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+        # num_workers = 8,
+        # prefetch_factor=4,
+        # multiprocessing_context=get_context('loky')
+        # persistent_workers=True
+    )
+    test_loader = DataLoader(
+        test_set,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+        # num_workers = 8,
+        # prefetch_factor=4,
+        # multiprocessing_context=get_context('loky')
+        # persistent_workers=True
+    )
 
     dynamic_node_idx = {
         "status": 0,
@@ -318,7 +343,6 @@ def main(cfg: DictConfig):
                         step_id=episode_step_id,
                         prefix="TRAIN",
                     )
-
                 batch_info = record_batch_info(episode_infos)
                 batch_infos.append(batch_info)
 
@@ -436,10 +460,8 @@ def main(cfg: DictConfig):
                                 "reward",
                             ]
                         )
-
                     batch_info = record_batch_info(episode_infos)
                     batch_infos.append(batch_info)
-
             epoch_info = record_epoch_info(batch_infos, cfg)
             
             score = epoch_info["scoring"]
@@ -451,13 +473,11 @@ def main(cfg: DictConfig):
                 mlflow_parent_run_name = os.environ["MLFLOW_PARENT_RUN_NAME"]
                 mlflow_child_run_name = run.info.run_name
                 locally_save_agent(agent, mlflow_experiment_name, mlflow_parent_run_name, mlflow_child_run_name)
-            
             mlflow_log_epoch_metrics(
                 epoch_info,
                 epoch_step_id,
                 prefix="VAL",
             )
-            
             
             agent.static_encoder.eval()
             agent.dynamic_encoder.eval()
@@ -757,10 +777,10 @@ def mlflow_log_batch_metrics(
         prefix = f"{prefix}_BATCH_"
 
     batch_info = {
-        "policy_loss": batch_info["mean_policy_loss"].clone().detach().cpu().item(),
-        "baseline_loss": batch_info["mean_baseline_loss"].clone().detach().cpu().item(),
-        "entropy_loss": batch_info["mean_entropy_loss"].clone().detach().cpu().item(),
-        "total_loss": batch_info["mean_total_loss"].clone().detach().cpu().item(),
+        "policy_loss": batch_info["mean_policy_loss"],#.clone().detach().cpu().item(),
+        "baseline_loss": batch_info["mean_baseline_loss"],#.clone().detach().cpu().item(),
+        "entropy_loss": batch_info["mean_entropy_loss"],#.clone().detach().cpu().item(),
+        "total_loss": batch_info["mean_total_loss"],#.clone().detach().cpu().item(),
         "reward": batch_info["mean_reward"],
         "success_rate": batch_info["success_rate"],
     }

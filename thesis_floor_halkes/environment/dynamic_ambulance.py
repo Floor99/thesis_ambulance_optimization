@@ -20,7 +20,6 @@ from thesis_floor_halkes.environment.base import Environment
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
 class DynamicEnvironment(Environment):
     def __init__(
         self,
@@ -51,19 +50,26 @@ class DynamicEnvironment(Environment):
         self.adjecency_matrix = build_adjecency_matrix(
             self.static_data.num_nodes, self.static_data
         )
-
-        if self.start_timestamp is not None:
-            self.start_timestamp = pd.to_datetime(self.start_timestamp)
-            if self.start_timestamp not in self.time_stamps:
-                raise ValueError(
-                    f"start_timestamp {self.start_timestamp} not in dynamic data"
-                )
-            self.current_time_idx = self.time_stamps.index(self.start_timestamp)
-        else:
-            T = len(self.time_stamps)
-            max_start = max(0, T - 1 - self.max_steps)
-            self.current_time_idx = random.randrange(0, max_start)
-            self.start_timestamp = self.time_stamps[self.current_time_idx]
+        T = len(self.time_stamps)
+        # max_start = max(0, T - 1 - self.max_steps)
+        self.current_time_idx = 0
+        self.start_timestamp = self.time_stamps[0]
+        # if self.start_timestamp is not None:
+        #     self.start_timestamp = pd.to_datetime(self.start_timestamp)
+        #     if self.start_timestamp not in self.time_stamps:
+        #         print(self.static_dataset.timeseries["timestamp"].unique())
+        #         print(self.time_stamps)
+        #         raise ValueError(
+        #             f"start_timestamp {self.start_timestamp} not in dynamic data"
+        #         )
+        #     self.current_time_idx = self.time_stamps.index(self.start_timestamp)
+        # else:
+        #     T = len(self.time_stamps)
+        #     # max_start = max(0, T - 1 - self.max_steps)
+        #     self.current_time_idx = 0
+        #     self.start_timestamp = self.time_stamps[0]
+        #     print(self.time_stamps[0])
+            
 
         self.states = []
         init_state = self._get_state()
