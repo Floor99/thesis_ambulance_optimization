@@ -8,6 +8,7 @@ import torch
 import mlflow
 import os
 from torch_geometric.loader import DataLoader
+from torch.nn.utils import clip_grad_norm_
 
 from thesis_floor_halkes.environment.dynamic_ambulance import DynamicEnvironment
 from thesis_floor_halkes.features.dynamic.getter import DynamicFeatureGetterDataFrame
@@ -55,13 +56,13 @@ def main(cfg: DictConfig):
     test_base_dir = "data/test_data_2/"
 
     train_set = StaticDataObjectSet(base_dir=train_base_dir)
-    # train_set = train_set[:]
+    train_set = train_set[:2]
 
     val_set = StaticDataObjectSet(base_dir=val_base_dir)
-    # val_set = val_set[:]
+    val_set = val_set[:2]
 
     test_set = StaticDataObjectSet(base_dir=test_base_dir)
-    # test_set = test_set[:]
+    test_set = test_set[:2]
     
     train_loader = DataLoader(
         train_set,
@@ -264,9 +265,14 @@ def main(cfg: DictConfig):
                 v = float(v)
             mlflow.log_param(k, v)
 
-        best_val_epoch_score = 0
-
+        best_val_epoch_score = -1
+        early_stopping_counter = cfg.training.patience
         for epoch in range(cfg.training.num_epochs):
+            if early_stopping_counter <= 0:
+                print(
+                    f"Early stopping triggered at epoch {epoch + 1}. Best validation score: {best_val_epoch_score}. Best epoch: {epoch - cfg.training.patience + 1}"
+                )
+                break
             print(f"Job:{job_num} == Epoch {epoch + 1}/{cfg.training.num_epochs}")
             batch_infos = []
             agent.static_encoder.train()
@@ -349,7 +355,10 @@ def main(cfg: DictConfig):
                 if use_joint_optimization:
                     optimizer.zero_grad()
                     batch_info["mean_total_loss"].backward()
-                    # clip_grad_norm_(agent.parameters(), max_norm=cfg.training.max_grad_norm)
+                    # clip_grad_norm_(agent.static_encoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                    # clip_grad_norm_(agent.dynamic_encoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                    # clip_grad_norm_(agent.decoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                    # clip_grad_norm_(agent.baseline.parameters(), max_norm=cfg.reinforce.max_grad_norm) if baseline is not None else None
                     optimizer.step()
                 else:
                     if baseline is not None:
@@ -357,13 +366,19 @@ def main(cfg: DictConfig):
                         baseline_optimizer.zero_grad()
                         batch_info["mean_policy_loss"].backward(retain_graph=True)
                         batch_info["mean_baseline_loss"].backward()
-                        # clip_grad_norm_(agent.parameters(), max_norm=cfg.training.max_grad_norm)
+                        # clip_grad_norm_(agent.static_encoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                        # clip_grad_norm_(agent.dynamic_encoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                        # clip_grad_norm_(agent.decoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                        # clip_grad_norm_(agent.baseline.parameters(), max_norm=cfg.reinforce.max_grad_norm) if baseline is not None else None
+                        
                         policy_optimizer.step()
                         baseline_optimizer.step()
                     else:
                         policy_optimizer.zero_grad()
                         batch_info["mean_policy_loss"].backward()
-                        # clip_grad_norm_(agent.parameters(), max_norm=cfg.training.max_grad_norm)
+                        # clip_grad_norm_(agent.static_encoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                        # clip_grad_norm_(agent.dynamic_encoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
+                        # clip_grad_norm_(agent.decoder.parameters(), max_norm=cfg.reinforce.max_grad_norm)
                         policy_optimizer.step()
 
                 batch_step_id = (
@@ -464,7 +479,10 @@ def main(cfg: DictConfig):
                     batch_infos.append(batch_info)
             epoch_info = record_epoch_info(batch_infos, cfg)
             
+            
+            
             score = epoch_info["scoring"]
+            early_stopping_counter -= 1
             if score > best_val_epoch_score:
                 best_val_epoch_score = score
                 # print(f"New best validation score: {best_val_epoch_score}")
@@ -473,6 +491,9 @@ def main(cfg: DictConfig):
                 mlflow_parent_run_name = os.environ["MLFLOW_PARENT_RUN_NAME"]
                 mlflow_child_run_name = run.info.run_name
                 locally_save_agent(agent, mlflow_experiment_name, mlflow_parent_run_name, mlflow_child_run_name)
+
+                early_stopping_counter = cfg.training.patience
+
             mlflow_log_epoch_metrics(
                 epoch_info,
                 epoch_step_id,
