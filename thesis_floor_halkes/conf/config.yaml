@@ -11,7 +11,7 @@ hydra:
     study_name: sphere
     storage: null
     n_trials: 50
-    n_jobs: 2
+    n_jobs: 3
     params:
       decoder.num_heads: choice(2, 4, 8, 16)
       reward_mod.penalty_per_step_value: choice(-1.0, -5.0, -10.0, -20.0)

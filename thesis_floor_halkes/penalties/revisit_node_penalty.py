@@ -62,11 +62,13 @@ class DeadEndPenalty(Penalty):
     def __call__(self, **kwargs) -> float:
         valid_actions = kwargs.get("valid_actions", List[int])
         environment = kwargs.get("environment", Environment)
+        current_node = kwargs.get("current_node", int)
+        end_node = kwargs.get("end_node", int)
 
-        if valid_actions == []:
+        if valid_actions == [] and current_node != end_node:
             return self.penalty
         
-        if environment.truncated:
+        if environment.truncated and current_node != end_node:
             return self.penalty
         
         return 0.0

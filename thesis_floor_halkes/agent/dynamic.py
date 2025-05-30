@@ -6,7 +6,8 @@ from thesis_floor_halkes.model.encoders import CacheStaticEmbedding
 from thesis_floor_halkes.state import State
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")  # For testing purposes, use CPU
+device = torch.device("cpu")  # For testing purposes, use CPU
+
 # class DynamicAgent(Agent):
 #     """
 #     A dynamic agent that adapts its behavior based on the environment.

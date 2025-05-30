@@ -34,7 +34,7 @@ from thesis_floor_halkes.utils.episode import finish_episode
 from joblib.externals.loky.backend.context import get_context
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")  # For testing purposes, use CPU
+device = torch.device("cpu")  # For testing purposes, use CPU
 
 print(f"Using device: {device}")
 
@@ -67,27 +67,27 @@ def main(cfg: DictConfig):
         train_set,
         batch_size=cfg.training.batch_size,
         shuffle=True,
-        # num_workers = 8,
+        # num_workers = 2,
         # prefetch_factor=4,
-        # multiprocessing_context=get_context('loky')
+        # multiprocessing_context=get_context('loky'),
         # persistent_workers=True
     )
     val_loader = DataLoader(
         val_set,
         batch_size=cfg.training.batch_size,
         shuffle=True,
-        # num_workers = 8,
+        # num_workers = 2,
         # prefetch_factor=4,
-        # multiprocessing_context=get_context('loky')
+        # multiprocessing_context=get_context('loky'),
         # persistent_workers=True
     )
     test_loader = DataLoader(
         test_set,
         batch_size=cfg.training.batch_size,
         shuffle=True,
-        # num_workers = 8,
+        # num_workers = 2,
         # prefetch_factor=4,
-        # multiprocessing_context=get_context('loky')
+        # multiprocessing_context=get_context('loky'),
         # persistent_workers=True
     )
 
@@ -267,7 +267,7 @@ def main(cfg: DictConfig):
         best_val_epoch_score = 0
 
         for epoch in range(cfg.training.num_epochs):
-            print(f"Epoch {epoch + 1}/{cfg.training.num_epochs}")
+            print(f"Job:{job_num} == Epoch {epoch + 1}/{cfg.training.num_epochs}")
             batch_infos = []
             agent.static_encoder.train()
             agent.dynamic_encoder.train()
@@ -280,9 +280,9 @@ def main(cfg: DictConfig):
                 skip_episode = False
 
                 for episode in range(batch.num_graphs):
-                    print(
-                        f"Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(train_loader)}"
-                    )
+                    # print(
+                    #     f"Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(train_loader)}"
+                    # )
                     static_data = batch.get_example(episode)
                     static_data.start_node = int(static_data.start_node.item())
                     static_data.end_node = int(static_data.end_node.item())
@@ -388,9 +388,9 @@ def main(cfg: DictConfig):
                     skip_episode = False
 
                     for episode in range(batch.num_graphs):
-                        print(
-                            f"Validation Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(val_loader)}"
-                        )
+                        # print(
+                        #     f"Validation Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(val_loader)}"
+                        # )
                         static_data = batch.get_example(episode)
                         static_data.start_node = int(static_data.start_node.item())
                         static_data.end_node = int(static_data.end_node.item())
@@ -491,9 +491,9 @@ def main(cfg: DictConfig):
                     skip_episode = False
 
                     for episode in range(batch.num_graphs):
-                        print(
-                            f"Test Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(test_loader)}"
-                        )
+                        # print(
+                        #     f"Test Episode {episode + 1}/{batch.num_graphs} in batch {batch_idx + 1}/{len(test_loader)}"
+                        # )
                         static_data = batch.get_example(episode)
                         static_data.start_node = int(static_data.start_node.item())
                         static_data.end_node = int(static_data.end_node.item())

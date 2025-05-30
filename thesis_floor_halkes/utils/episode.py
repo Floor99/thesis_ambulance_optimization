@@ -3,7 +3,8 @@ import torch.nn.functional as F
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = "cpu"
+device = torch.device("cpu")  # For testing purposes, use CPU
+
 
 
 def finish_episode(

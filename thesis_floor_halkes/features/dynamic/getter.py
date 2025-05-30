@@ -77,6 +77,7 @@ class DynamicFeatureGetter(ABC):
 #         return data
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")  # For testing purposes, use CPU
 
 class DynamicFeatureGetterDataFrame(DynamicFeatureGetter):
     def __init__(

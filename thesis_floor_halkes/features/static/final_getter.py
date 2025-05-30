@@ -372,7 +372,12 @@ class StaticDataObjectSet(Dataset):
         # static_data.start_node = static_data.start_node.item() if isinstance(static_data.start_node, torch.Tensor) else static_data.start_node
         # static_data.end_node = static_data.end_node.item() if isinstance(static_data.end_node, torch.Tensor) else static_data.end_node
         graph_id = os.path.basename(file_path)[:-3]  # Remove '.pt' from the end
-        static_data.graph_id = graph_id
+        try:
+            static_data.graph_id = graph_id
+        except AttributeError as e:
+            print(f"Error setting graph_id for {file_path}: {e}")
+            static_data.graph_id = graph_id
+            raise e
         # print(graph_id)
         return static_data
 
