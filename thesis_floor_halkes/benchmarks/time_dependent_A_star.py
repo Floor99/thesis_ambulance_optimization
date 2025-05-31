@@ -13,20 +13,18 @@ def time_dependent_a_star(
     dynamic_node_idx,
     static_node_idx,
     static_edge_idx,
-    start_time_stamp,
 ):
     df = static_data.timeseries.copy()
-    # start_node = static_data.start_node
-    # end_node = static_data.end_node
-    start_node = 42
-    end_node = 9
-    print(f"Start node: {start_node}")
-    print(f"End node: {end_node}")
+    start_node = static_data.start_node
+    end_node = static_data.end_node
+    # print(f"Start node: {start_node}")
+    # print(f"End node: {end_node}")
 
     df_start = df[df['node_id'] == start_node]
     time_stamps = sorted(df_start["timestamp"].unique())
-    ts0 = pd.to_datetime(start_time_stamp)
-    t0 = time_stamps.index(ts0)
+    ts0 = pd.to_datetime(time_stamps[0])  # ensures it's a pandas.Timestamp
+    t0 = time_stamps.index(ts0) # index of the first timestamp
+    
     T = len(time_stamps)
 
     adj = build_adjecency_matrix(static_data.num_nodes, static_data)
@@ -53,7 +51,7 @@ def time_dependent_a_star(
         if cost > best.get((node, t_idx), float("inf")):
             continue
         if node == end_node:
-            print(f"[FOUND] cost={cost:.3f}, path={path}")
+            # print(f"[FOUND] cost={cost:.3f}, path={path}")
             return cost, path
         next_t = t_idx + 1
         if next_t >= T:
@@ -73,15 +71,23 @@ def time_dependent_a_star(
             length = static_data.edge_attr[eidx, static_edge_idx["length"]]
             speed = static_data.edge_attr[eidx, static_edge_idx["speed"]]
             travel_time = length / (speed / 3.6)
-            wait = wait_times[nbr].item()
+            
+            light_status = dyn.x[nbr, dynamic_node_idx["status"]].item()
+            if light_status == 1:  # green light
+                wait = 0.0
+            else:  # red light
+                wait = wait_times[nbr].item()
+            
             new_cost = cost + travel_time + wait
             key = (nbr, next_t)
+            
             if new_cost < best.get(key, float("inf")):
                 best[key] = new_cost
                 est = new_cost + heuristic(nbr)
                 heapq.heappush(heap, (est, new_cost, nbr, next_t, path + [nbr]))
 
     return None, float("inf")  # No path found
+
 
 
 if __name__ == "__main__":

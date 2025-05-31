@@ -18,33 +18,20 @@ def time_dependent_dijkstra(
     dynamic_node_idx,
     static_node_idx,
     static_edge_idx,
-    start_time_stamp,
 ):
     df = static_data.timeseries.copy()
-    # start_node = static_data.start_node
-    start_node = 42
-    print(f"Start node: {start_node}")
+    start_node = static_data.start_node
     
-    df_start = df[df['node_id'] == start_node]    
-    # print(f"start df:\n {df_start}\n")
+    df_start = df[df['node_id'] == start_node]
     time_stamps = sorted(df_start["timestamp"].unique())
-    # print(f"Time stamps:\n {time_stamps}\n")
-    ts0 = pd.to_datetime(start_time_stamp)
-    t0 = time_stamps.index(ts0)
-
+    ts0 = pd.to_datetime(time_stamps[0])  # ensures it's a pandas.Timestamp
+    t0 = time_stamps.index(ts0) # index of the first timestamp
+    
     T = len(time_stamps)
     
-    # print(f"INIT start node: {start_node}, t0: {t0}, T: {T}")
-    
     adj = build_adjecency_matrix(static_data.num_nodes, static_data)
-    # print(f"Adjacency matrix:\n {adj}\n")
-    # start = static_data.start_node
-    # end = static_data.end_node
-    start = 42
-    end = 9
-    print(f"Start node: {start}")
-    print(f"End node: {end}")
-    
+    start = static_data.start_node
+    end = static_data.end_node
     
     class _TmpEnv:
         pass 
@@ -53,9 +40,8 @@ def time_dependent_dijkstra(
     tmp.static_node_idx = static_node_idx
     
     heap = [(0.0, start, t0, [start])]
-    # print(f"Heap: {heap}")
     best = {(start, t0): 0.0}
-
+    
     while heap: 
         cost, node, t_idx, path = heapq.heappop(heap)
         # print(f"[POP] cost={cost:.3f}, node={node}, t_idx={t_idx}, path={path}")
@@ -63,7 +49,7 @@ def time_dependent_dijkstra(
             # print("       → skipping stale entry")
             continue
         if node == end:
-            print(f"[FOUND] cost={cost:.3f}, path={path}")
+            # print(f"[FOUND] cost={cost:.3f}, path={path}")
             return cost, path
         next_t = t_idx + 1
         if next_t >= T:
@@ -85,7 +71,11 @@ def time_dependent_dijkstra(
             length = static_data.edge_attr[eidx, static_edge_idx["length"]]
             speed = static_data.edge_attr[eidx, static_edge_idx["speed"]]
             travel_time = length / (speed / 3.6)
-            wait = wait_times[nbr].item()
+            light_status = dyn.x[nbr, dynamic_node_idx["status"]].item()
+            if light_status == 1:  # green light
+                wait = 0.0
+            else:  # red light
+                wait = wait_times[nbr].item()
             
             ts = time_stamps[next_t]
             orig_wait_series = df[
@@ -110,6 +100,7 @@ def time_dependent_dijkstra(
                 # print(f"           • pushed (cost={new_cost:.2f}, node={nbr}, t={next_t})")
         
     return None, float("inf")  # No path found
+    
         
         
     
