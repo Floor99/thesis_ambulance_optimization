@@ -51,18 +51,18 @@ def main(cfg: DictConfig):
     os.makedirs("checkpoints", exist_ok=True)
     parent_run_id = os.environ.get("MLFLOW_PARENT_RUN_ID")
 
-    train_base_dir = "data/training_data_2/"
-    val_base_dir = "data/validation_data_2/"
-    test_base_dir = "data/test_data_2/"
+    train_base_dir = cfg.data.train_path
+    val_base_dir = cfg.data.val_path
+    test_base_dir = cfg.data.test_path
 
-    train_set = StaticDataObjectSet(base_dir=train_base_dir)
-    train_set = train_set[:2]
+    train_set = StaticDataObjectSet(root=train_base_dir, processed_file_names=[cfg.data.data_file])
+    # train_set = train_set[:2]
 
-    val_set = StaticDataObjectSet(base_dir=val_base_dir)
-    val_set = val_set[:2]
+    val_set = StaticDataObjectSet(root=val_base_dir, processed_file_names=[cfg.data.data_file])
+    # val_set = val_set[:2]
 
-    test_set = StaticDataObjectSet(base_dir=test_base_dir)
-    test_set = test_set[:2]
+    test_set = StaticDataObjectSet(root=test_base_dir, processed_file_names=[cfg.data.data_file])
+    # test_set = test_set[:2]
     
     train_loader = DataLoader(
         train_set,
@@ -926,7 +926,7 @@ if __name__ == "__main__":
     os.environ["SWEEP_ID"] = sweep_id
 
     # Always assume we're in single run; actual check is inside `main()`
-    experiment = mlflow.set_experiment("dynamic_ambulance_training")
+    experiment = mlflow.set_experiment("smart_traffic_lights")
     with mlflow.start_run(run_name=f"{sweep_id}") as parent_run:
         os.environ["MLFLOW_PARENT_RUN_ID"] = parent_run.info.run_id
         os.environ["MLFLOW_PARENT_RUN_NAME"] = parent_run.info.run_name

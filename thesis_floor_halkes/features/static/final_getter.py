@@ -387,13 +387,14 @@ import torch
 from torch_geometric.data import InMemoryDataset, Data
 
 class StaticDataObjectSet(InMemoryDataset):
-    def __init__(self, base_dir, transform=None, pre_transform=None, pre_filter=None):
-        super().__init__(base_dir, transform, pre_transform, pre_filter)
+    def __init__(self, root:str, transform=None, pre_filter=None, pre_transform=None, processed_file_names=["data.pt"]):
+        self._procesed_file_names = processed_file_names
+        super(StaticDataObjectSet, self).__init__(root, transform, pre_filter, pre_transform)
         self.load(self.processed_paths[0])
 
     @property
     def processed_file_names(self):
-        return ['data.pt']
+        return self._procesed_file_names
 
     def process(self):
         base_dir = self.root
